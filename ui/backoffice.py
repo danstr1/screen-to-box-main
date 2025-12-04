@@ -473,6 +473,7 @@ class BackofficeUI(QMainWindow):
             url = f"{BaseURL.BASE_URL}{endpoint}"
             # Use shorter timeout for switch operations to prevent blocking
             timeout = 3 if '/switch/' in endpoint else 5
+            timeout = 30 if '/ports_vlan' in endpoint else timeout
             
             if method == "GET":
                 response = requests.get(url, timeout=timeout)
@@ -673,30 +674,58 @@ class BackofficeUI(QMainWindow):
     
     def sync_switch_vlans(self):
         """Sync actual VLANs from switch and display in tables"""
-        # Use longer timeout for this operation
-        result = self.api_request("GET", "/switch/ports_vlans", timeout=60)
+        # Show progress message
+        self.statusBar().showMessage("Syncing VLANs from switch, please wait...")
+        QApplication.processEvents()  # Update UI immediately
+        
+        # Use longer timeout for this operation (3 minutes)
+        result = self.api_request("GET", "/switch/ports_vlans", timeout=180, show_error=True)
+        
+        self.statusBar().clearMessage()
+        
         if result:
             boxes_vlans = result.get('boxes', {})
             screens_vlans = result.get('screens', {})
             
+            print(f"[DEBUG] Received boxes_vlans: {boxes_vlans}")
+            print(f"[DEBUG] Received screens_vlans: {screens_vlans}")
+            
             # Update screens table
+            updated_screens = 0
             for row in range(self.screens_table.rowCount()):
                 screen_id_item = self.screens_table.item(row, 0)
                 if screen_id_item:
                     screen_id = int(screen_id_item.text())
-                    actual_vlan = screens_vlans.get(str(screen_id), 'N/A')
-                    self.screens_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan) if actual_vlan else 'N/A'))
+                    # Try both integer and string keys
+                    actual_vlan = screens_vlans.get(screen_id) or screens_vlans.get(str(screen_id))
+                    if actual_vlan:
+                        self.screens_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
+                        updated_screens += 1
+                        print(f"[DEBUG] Updated screen {screen_id} with VLAN {actual_vlan}")
+                    else:
+                        self.screens_table.setItem(row, 4, QTableWidgetItem('N/A'))
+                        print(f"[DEBUG] No VLAN found for screen {screen_id}")
             
             # Update boxes table
+            updated_boxes = 0
             for row in range(self.boxes_table.rowCount()):
                 box_id_item = self.boxes_table.item(row, 0)
                 if box_id_item:
                     box_id = int(box_id_item.text())
-                    actual_vlan = boxes_vlans.get(str(box_id), 'N/A')
-                    self.boxes_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan) if actual_vlan else 'N/A'))
+                    # Try both integer and string keys
+                    actual_vlan = boxes_vlans.get(box_id) or boxes_vlans.get(str(box_id))
+                    if actual_vlan:
+                        self.boxes_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
+                        updated_boxes += 1
+                        print(f"[DEBUG] Updated box {box_id} with VLAN {actual_vlan}")
+                    else:
+                        self.boxes_table.setItem(row, 4, QTableWidgetItem('N/A'))
+                        print(f"[DEBUG] No VLAN found for box {box_id}")
             
             QMessageBox.information(self, "Success", 
-                f"Synced VLANs from switch:\n{len(screens_vlans)} screens\n{len(boxes_vlans)} boxes")
+                f"Synced VLANs from switch:\n{updated_screens} screens updated\n{updated_boxes} boxes updated")
+        else:
+            QMessageBox.warning(self, "Error", "Failed to sync VLANs from switch. Check console for details.")
     
     # Box methods
     def refresh_boxes(self):
