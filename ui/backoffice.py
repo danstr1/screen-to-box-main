@@ -68,7 +68,7 @@ class AddEditBoxDialog(QDialog):
         
         layout.addRow("Box Number:", self.box_number_input)
         layout.addRow("Port Number:", self.port_number_input)
-        layout.addRow("VLAN Number (optional):", self.vlan_number_input)
+        layout.addRow("VLAN Number:", self.vlan_number_input)
         
         buttons = QHBoxLayout()
         self.save_btn = QPushButton("Save")
@@ -93,7 +93,7 @@ class AddEditBoxDialog(QDialog):
         return {
             'box_number': self.box_number_input.text().strip(),
             'port_number': self.port_number_input.text().strip(),
-            'vlan_number': self.vlan_number_input.text().strip() or None
+            'vlan_number': self.vlan_number_input.text().strip()
         }
 
 
@@ -115,11 +115,9 @@ class AddEditScreenDialog(QDialog):
         
         self.screen_number_input = QLineEdit()
         self.port_number_input = QLineEdit()
-        self.vlan_number_input = QLineEdit()
         
         layout.addRow("Screen Number:", self.screen_number_input)
         layout.addRow("Port Number:", self.port_number_input)
-        layout.addRow("VLAN Number (optional):", self.vlan_number_input)
         
         buttons = QHBoxLayout()
         self.save_btn = QPushButton("Save")
@@ -138,14 +136,11 @@ class AddEditScreenDialog(QDialog):
             if self.screen_data.get('screen_number'):
                 self.screen_number_input.setText(str(self.screen_data.get('screen_number', '')))
             self.port_number_input.setText(str(self.screen_data.get('port_number', '')))
-            if self.screen_data.get('vlan_number'):
-                self.vlan_number_input.setText(str(self.screen_data.get('vlan_number', '')))
     
     def get_data(self) -> Dict:
         return {
             'screen_number': self.screen_number_input.text().strip() or None,
-            'port_number': self.port_number_input.text().strip(),
-            'vlan_number': self.vlan_number_input.text().strip() or None
+            'port_number': self.port_number_input.text().strip()
         }
 
 
@@ -590,6 +585,9 @@ class BackofficeUI(QMainWindow):
             data = dialog.get_data()
             if not data.get('port_number') or not data.get('box_number'):
                 QMessageBox.warning(self, "Validation Error", "Port number and box number are required")
+                return
+            if not data.get('vlan_number'):
+                QMessageBox.warning(self, "Validation Error", "VLAN number is required")
                 return
             
             result = self.api_request("POST", "/boxes", data)

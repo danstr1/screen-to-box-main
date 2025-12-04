@@ -44,9 +44,12 @@ def add_box():
     if 'box_number' not in data:
         return jsonify({'error': 'box_number is required'}), 400
     
+    if 'vlan_number' not in data or not data['vlan_number']:
+        return jsonify({'error': 'vlan_number is required'}), 400
+    
     port_number = data['port_number']
     box_number = data['box_number']
-    vlan_number = data.get('vlan_number')
+    vlan_number = data['vlan_number']
     
     # Create new box
     new_box = box_service.create_box(port_number, box_number, vlan_number)
@@ -318,19 +321,19 @@ def assign_box_to_screen():
         if existing_screen_for_box:
             return jsonify({'error': ERROR_BOX_ALREADY_HAS_SCREEN}), 400
     
-    # Physically assign box port to screen's VLAN on the switch
+    # Physically assign screen port to box's VLAN on the switch
     if screen and box:
-        box_port = box.get('port_number')
-        screen_vlan = screen.get('vlan_number')
+        screen_port = screen.get('port_number')
+        box_vlan = box.get('vlan_number')
         
-        if box_port and screen_vlan:
+        if screen_port and box_vlan:
             try:
                 if cisco_worker.connection and cisco_worker.connection.is_open:
-                    success = cisco_worker.assign_box_to_screen_vlan(box_port, screen_vlan)
+                    success = cisco_worker.assign_port_to_vlan(screen_port, box_vlan)
                     if not success:
-                        print(f"Warning: Failed to assign box port {box_port} to screen VLAN {screen_vlan} on switch")
+                        print(f"Warning: Failed to assign screen port {screen_port} to box VLAN {box_vlan} on switch")
             except Exception as e:
-                print(f"Error assigning box to screen VLAN on switch: {e}")
+                print(f"Error assigning screen port to box VLAN on switch: {e}")
     
     return jsonify(screen), 200
 
@@ -402,18 +405,18 @@ def assign_user_to_screen():
         # This should not happen after clearing conflicts, but handle it just in case
         return jsonify({'error': 'Failed to assign box to screen'}), 500
     
-    # Physically assign box port to screen's VLAN on the switch
-    box_port = box.get('port_number')
-    screen_vlan = screen.get('vlan_number')
+    # Physically assign screen port to box's VLAN on the switch
+    screen_port = screen.get('port_number')
+    box_vlan = box.get('vlan_number')
     
-    if box_port and screen_vlan:
+    if screen_port and box_vlan:
         try:
             if cisco_worker.connection and cisco_worker.connection.is_open:
-                success = cisco_worker.assign_box_to_screen_vlan(box_port, screen_vlan)
+                success = cisco_worker.assign_port_to_vlan(screen_port, box_vlan)
                 if not success:
-                    print(f"Warning: Failed to assign box port {box_port} to screen VLAN {screen_vlan} on switch")
+                    print(f"Warning: Failed to assign screen port {screen_port} to box VLAN {box_vlan} on switch")
         except Exception as e:
-            print(f"Error assigning box to screen VLAN on switch: {e}")
+            print(f"Error assigning screen port to box VLAN on switch: {e}")
     
     return jsonify(screen), 200
 
