@@ -255,13 +255,17 @@ class BackofficeUI(QMainWindow):
         self.add_screen_btn = QPushButton("Add Screen")
         self.edit_screen_btn = QPushButton("Edit Screen")
         self.delete_screen_btn = QPushButton("Delete Screen")
+        self.reconfigure_screen_vlan_btn = QPushButton("Reconfigure Screen VLAN")
         self.reset_screen_vlans_btn = QPushButton("Reset All VLANs to 101")
+        self.sync_switch_vlans_btn = QPushButton("Sync Switch VLANs")
         self.refresh_screens_btn = QPushButton("Refresh")
         
         btn_layout.addWidget(self.add_screen_btn)
         btn_layout.addWidget(self.edit_screen_btn)
         btn_layout.addWidget(self.delete_screen_btn)
+        btn_layout.addWidget(self.reconfigure_screen_vlan_btn)
         btn_layout.addWidget(self.reset_screen_vlans_btn)
+        btn_layout.addWidget(self.sync_switch_vlans_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.refresh_screens_btn)
         
@@ -269,8 +273,8 @@ class BackofficeUI(QMainWindow):
         
         # Table
         self.screens_table = QTableWidget()
-        self.screens_table.setColumnCount(5)
-        self.screens_table.setHorizontalHeaderLabels(["ID", "Screen Number", "Port Number", "VLAN Number", "Box ID"])
+        self.screens_table.setColumnCount(6)
+        self.screens_table.setHorizontalHeaderLabels(["ID", "Screen Number", "Port Number", "VLAN Number", "Actual VLAN in SW", "Box ID"])
         self.screens_table.horizontalHeader().setStretchLastSection(True)
         self.screens_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.screens_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -281,7 +285,9 @@ class BackofficeUI(QMainWindow):
         self.add_screen_btn.clicked.connect(self.add_screen)
         self.edit_screen_btn.clicked.connect(self.edit_screen)
         self.delete_screen_btn.clicked.connect(self.delete_screen)
+        self.reconfigure_screen_vlan_btn.clicked.connect(self.reconfigure_screen_vlan)
         self.reset_screen_vlans_btn.clicked.connect(self.reset_all_screen_vlans)
+        self.sync_switch_vlans_btn.clicked.connect(self.sync_switch_vlans)
         self.refresh_screens_btn.clicked.connect(self.refresh_screens)
         
         return widget
@@ -308,8 +314,8 @@ class BackofficeUI(QMainWindow):
         
         # Table
         self.boxes_table = QTableWidget()
-        self.boxes_table.setColumnCount(5)
-        self.boxes_table.setHorizontalHeaderLabels(["ID", "Box Number", "Port Number", "VLAN Number", "User ID"])
+        self.boxes_table.setColumnCount(6)
+        self.boxes_table.setHorizontalHeaderLabels(["ID", "Box Number", "Port Number", "VLAN Number", "Actual VLAN in SW", "User ID"])
         self.boxes_table.horizontalHeader().setStretchLastSection(True)
         self.boxes_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.boxes_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -507,7 +513,8 @@ class BackofficeUI(QMainWindow):
                 self.screens_table.setItem(row, 1, QTableWidgetItem(str(screen.get('screen_number', ''))))
                 self.screens_table.setItem(row, 2, QTableWidgetItem(str(screen.get('port_number', ''))))
                 self.screens_table.setItem(row, 3, QTableWidgetItem(str(screen.get('vlan_number', '') or '')))
-                self.screens_table.setItem(row, 4, QTableWidgetItem(str(screen.get('box_id', '') or '')))
+                self.screens_table.setItem(row, 4, QTableWidgetItem(''))  # Actual VLAN - will be filled by sync
+                self.screens_table.setItem(row, 5, QTableWidgetItem(str(screen.get('box_id', '') or '')))
     
     def add_screen(self):
         dialog = AddEditScreenDialog(self)
@@ -570,16 +577,91 @@ class BackofficeUI(QMainWindow):
                 self.refresh_assignments()
                 self.refresh_overview()
     
-    def reset_all_screen_vlans(self):
-        """Reset all screen ports to default VLAN 101"""
+    def reconfigure_screen_vlan(self):
+        """Reconfigure selected screen's VLAN on the switch based on its assigned box"""
+        selected = self.screens_table.currentRow()
+        if selected < 0:
+            QMessageBox.warning(self, "Selection Error", "Please select a screen to reconfigure")
+            return
+        
+        screen_id = int(self.screens_table.item(selected, 0).text())
+        screen_port = self.screens_table.item(selected, 2).text()
+        
+        # Get screen data
+        screen = None
+        screens = self.api_request("GET", "/screens")
+        if screens:
+            for s in screens:
+                if s.get('screen_id') == screen_id:
+                    screen = s
+                    break
+        
+        if not screen:
+            QMessageBox.warning(self, "Error", "Screen not found")
+            return
+        
+        box_id = screen.get('box_id')
+        
+        # Determine target VLAN
+        if box_id:
+            # Screen is assigned to a box, use box's VLAN
+            boxes = self.api_request("GET", "/boxes")
+            box = None
+            if boxes:
+                for b in boxes:
+                    if b.get('box_id') == box_id:
+                        box = b
+                        break
+            
+            if not box:
+                QMessageBox.warning(self, "Error", "Assigned box not found")
+                return
+            
+            target_vlan = box.get('vlan_number')
+            if not target_vlan:
+                QMessageBox.warning(self, "Error", "Box has no VLAN configured")
+                return
+            
+            message = f"Reconfigure screen {screen_id} (port {screen_port}) to use box's VLAN {target_vlan}?"
+        else:
+            # Screen is not assigned, use default screen VLAN (101)
+            target_vlan = "101"
+            message = f"Screen {screen_id} is not assigned to any box.\nReconfigure port {screen_port} to default screen VLAN {target_vlan}?"
+        
         reply = QMessageBox.question(
-            self, "Confirm Reset",
-            "Are you sure you want to reset all screen ports to VLAN 101?\nThis will affect all screens regardless of their current assignment.",
+            self, "Confirm Reconfigure",
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            result = self.api_request("POST", "/screens/reset_all_vlans")
+            # Make API call to reconfigure the port
+            result = self.api_request(
+                "POST",
+                "/switch/reconfigure_port",
+                {"port": screen_port, "vlan": target_vlan},
+                timeout=30
+            )
+            
+            if result:
+                QMessageBox.information(self, "Success", 
+                    f"Screen {screen_id} port {screen_port} reconfigured to VLAN {target_vlan}")
+                # Refresh to show updated actual VLAN
+                self.sync_switch_vlans()
+            else:
+                QMessageBox.warning(self, "Error", "Failed to reconfigure screen VLAN")
+    
+    def reset_all_screen_vlans(self):
+        """Reset all screen ports to default VLAN 101"""
+        reply = QMessageBox.question(
+            self, "Confirm Reset",
+            "Are you sure you want to reset all screen ports to VLAN 101?\nThis will affect all screens regardless of their current assignment.\n\nThis operation may take several minutes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Use longer timeout for this operation (120 seconds)
+            result = self.api_request("POST", "/screens/reset_all_vlans", timeout=120)
             if result:
                 message = result.get('message', 'Operation completed')
                 warning = result.get('warning')
@@ -588,6 +670,33 @@ class BackofficeUI(QMainWindow):
                 else:
                     QMessageBox.information(self, "Success", message)
                 self.refresh_screens()
+    
+    def sync_switch_vlans(self):
+        """Sync actual VLANs from switch and display in tables"""
+        # Use longer timeout for this operation
+        result = self.api_request("GET", "/switch/ports_vlans", timeout=60)
+        if result:
+            boxes_vlans = result.get('boxes', {})
+            screens_vlans = result.get('screens', {})
+            
+            # Update screens table
+            for row in range(self.screens_table.rowCount()):
+                screen_id_item = self.screens_table.item(row, 0)
+                if screen_id_item:
+                    screen_id = int(screen_id_item.text())
+                    actual_vlan = screens_vlans.get(str(screen_id), 'N/A')
+                    self.screens_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan) if actual_vlan else 'N/A'))
+            
+            # Update boxes table
+            for row in range(self.boxes_table.rowCount()):
+                box_id_item = self.boxes_table.item(row, 0)
+                if box_id_item:
+                    box_id = int(box_id_item.text())
+                    actual_vlan = boxes_vlans.get(str(box_id), 'N/A')
+                    self.boxes_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan) if actual_vlan else 'N/A'))
+            
+            QMessageBox.information(self, "Success", 
+                f"Synced VLANs from switch:\n{len(screens_vlans)} screens\n{len(boxes_vlans)} boxes")
     
     # Box methods
     def refresh_boxes(self):
@@ -599,7 +708,8 @@ class BackofficeUI(QMainWindow):
                 self.boxes_table.setItem(row, 1, QTableWidgetItem(str(box.get('box_number', ''))))
                 self.boxes_table.setItem(row, 2, QTableWidgetItem(str(box.get('port_number', ''))))
                 self.boxes_table.setItem(row, 3, QTableWidgetItem(str(box.get('vlan_number', '') or '')))
-                self.boxes_table.setItem(row, 4, QTableWidgetItem(str(box.get('user_id', '') or '')))
+                self.boxes_table.setItem(row, 4, QTableWidgetItem(''))  # Actual VLAN - will be filled by sync
+                self.boxes_table.setItem(row, 5, QTableWidgetItem(str(box.get('user_id', '') or '')))
     
     def add_box(self):
         dialog = AddEditBoxDialog(self)

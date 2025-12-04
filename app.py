@@ -352,22 +352,28 @@ def assign_user_to_screen():
     if screen_id is None or user_id is None:
         return jsonify({'error': 'Both screen_id and user_id are required'}), 400
     
+    print(f"[INFO] Assigning user {user_id} to screen {screen_id}")
+    
     # Check if screen exists
     screen = screen_service.get_screen_by_id(screen_id)
     if not screen:
+        print(f"[ERROR] Screen {screen_id} not found")
         return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
     
     # Get the box assigned to the user
     box = box_service.get_box_by_user_id(user_id)
     if not box:
+        print(f"[ERROR] User {user_id} has no assigned box")
         return jsonify({'error': ERROR_USER_NOT_FOUND}), 400
     
     box_id = box['box_id']
+    print(f"[INFO] User {user_id} has box {box_id} (Box Number: {box.get('box_number')})")
     
     # If screen is already assigned to a different box, unassign it first
     if screen.get('box_id') is not None and screen.get('box_id') != box_id:
         old_box_id = screen.get('box_id')
         old_box = box_service.get_box_by_id(old_box_id)
+        print(f"[INFO] Screen {screen_id} is assigned to different box {old_box_id}, unassigning...")
         
         # Unassign the screen from the old box
         screen_service.unassign_screen(screen_id)
@@ -379,13 +385,15 @@ def assign_user_to_screen():
                 try:
                     if cisco_worker.connection and cisco_worker.connection.is_open:
                         default_vlan = old_box.get('vlan_number') or cisco_worker.default_box_vlan
+                        print(f"[INFO] Resetting old box port {old_box_port} to VLAN {default_vlan}")
                         cisco_worker.assign_port_to_vlan(old_box_port, default_vlan)
                 except Exception as e:
-                    print(f"Error resetting old box port VLAN on switch: {e}")
+                    print(f"[ERROR] Error resetting old box port VLAN on switch: {e}")
     
     # If the new box is already assigned to another screen, unassign it first
     existing_screen_for_box = screen_service.get_screen_by_box_id(box_id)
     if existing_screen_for_box and existing_screen_for_box.get('screen_id') != screen_id:
+        print(f"[INFO] Box {box_id} is assigned to different screen {existing_screen_for_box.get('screen_id')}, unassigning...")
         # Unassign the box from the old screen
         screen_service.unassign_box_from_screen(box_id)
         
@@ -395,29 +403,36 @@ def assign_user_to_screen():
             try:
                 if cisco_worker.connection and cisco_worker.connection.is_open:
                     default_vlan = box.get('vlan_number') or cisco_worker.default_box_vlan
+                    print(f"[INFO] Resetting box port {box_port} to VLAN {default_vlan}")
                     cisco_worker.assign_port_to_vlan(box_port, default_vlan)
             except Exception as e:
-                print(f"Error resetting box port VLAN on switch: {e}")
+                print(f"[ERROR] Error resetting box port VLAN on switch: {e}")
     
     # Now assign box to screen (this will work since we've cleared any conflicts)
+    print(f"[INFO] Assigning box {box_id} to screen {screen_id} in database")
     screen = screen_service.assign_box_to_screen(box_id, screen_id)
     if not screen:
         # This should not happen after clearing conflicts, but handle it just in case
+        print(f"[ERROR] Failed to assign box {box_id} to screen {screen_id}")
         return jsonify({'error': 'Failed to assign box to screen'}), 500
     
     # Physically assign screen port to box's VLAN on the switch
     screen_port = screen.get('port_number')
     box_vlan = box.get('vlan_number')
     
+    print(f"[INFO] Configuring switch: screen port {screen_port} to box VLAN {box_vlan}")
     if screen_port and box_vlan:
         try:
             if cisco_worker.connection and cisco_worker.connection.is_open:
                 success = cisco_worker.assign_port_to_vlan(screen_port, box_vlan)
                 if not success:
-                    print(f"Warning: Failed to assign screen port {screen_port} to box VLAN {box_vlan} on switch")
+                    print(f"[WARNING] Failed to assign screen port {screen_port} to box VLAN {box_vlan} on switch")
+                else:
+                    print(f"[SUCCESS] Screen port {screen_port} configured to VLAN {box_vlan}")
         except Exception as e:
-            print(f"Error assigning screen port to box VLAN on switch: {e}")
+            print(f"[ERROR] Error assigning screen port to box VLAN on switch: {e}")
     
+    print(f"[SUCCESS] User {user_id} assigned to screen {screen_id}")
     return jsonify(screen), 200
 
 
@@ -590,6 +605,88 @@ def get_all_ports():
         return jsonify({'error': f'Failed to get ports status: {str(e)}'}), 500
 
 
+@app.route('/switch/ports_vlans', methods=['GET'])
+def get_all_ports_vlans():
+    """Get VLAN configuration for all ports from the switch"""
+    try:
+        print("[INFO] Getting VLANs for all ports from switch...")
+        if not cisco_worker.connection or not cisco_worker.connection.is_open:
+            print("[ERROR] Switch not connected")
+            return jsonify({'error': 'Switch not connected'}), 500
+        
+        # Get all boxes and screens
+        boxes = box_service.get_all_boxes()
+        screens = screen_service.get_all_screens()
+        
+        result = {
+            'boxes': {},
+            'screens': {}
+        }
+        
+        # Get actual VLANs for boxes
+        for box in boxes:
+            port = box.get('port_number')
+            box_id = box.get('box_id')
+            if port:
+                print(f"[DEBUG] Getting VLAN for box {box_id} port {port}")
+                vlan = cisco_worker.get_port_vlan(port)
+                result['boxes'][box_id] = vlan
+                print(f"[DEBUG] Box {box_id} port {port} VLAN: {vlan}")
+        
+        # Get actual VLANs for screens
+        for screen in screens:
+            port = screen.get('port_number')
+            screen_id = screen.get('screen_id')
+            if port:
+                print(f"[DEBUG] Getting VLAN for screen {screen_id} port {port}")
+                vlan = cisco_worker.get_port_vlan(port)
+                result['screens'][screen_id] = vlan
+                print(f"[DEBUG] Screen {screen_id} port {port} VLAN: {vlan}")
+        
+        print(f"[SUCCESS] Retrieved VLANs for {len(result['boxes'])} boxes and {len(result['screens'])} screens")
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"[ERROR] Failed to get ports VLANs: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to get ports VLANs: {str(e)}'}), 500
+
+
+@app.route('/switch/reconfigure_port', methods=['POST'])
+def reconfigure_port():
+    """Reconfigure a specific port to a target VLAN"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': ERROR_REQUEST_BODY_REQUIRED}), 400
+        
+        port = data.get('port')
+        vlan = data.get('vlan')
+        
+        if not port or not vlan:
+            return jsonify({'error': 'Both port and vlan are required'}), 400
+        
+        print(f"[INFO] Reconfiguring port {port} to VLAN {vlan}")
+        
+        if not cisco_worker.connection or not cisco_worker.connection.is_open:
+            print("[ERROR] Switch not connected")
+            return jsonify({'error': 'Switch not connected'}), 500
+        
+        success = cisco_worker.assign_port_to_vlan(port, vlan)
+        
+        if success:
+            print(f"[SUCCESS] Port {port} reconfigured to VLAN {vlan}")
+            return jsonify({'message': f'Port {port} successfully reconfigured to VLAN {vlan}'}), 200
+        else:
+            print(f"[ERROR] Failed to reconfigure port {port} to VLAN {vlan}")
+            return jsonify({'error': f'Failed to reconfigure port {port}'}), 500
+    except Exception as e:
+        print(f"[ERROR] Exception in reconfigure_port: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to reconfigure port: {str(e)}'}), 500
+
+
 @app.route('/switch/ports/<path:port>', methods=['GET'])
 def get_port_status(port):
     """Get status of a specific port"""
@@ -617,26 +714,41 @@ def sync_switch():
 def reset_all_screen_vlans():
     """Reset all screen ports to default VLAN 101"""
     try:
+        print("[INFO] Starting reset_all_screen_vlans operation...")
+        
         if not cisco_worker.connection or not cisco_worker.connection.is_open:
+            print("[ERROR] Switch not connected")
             return jsonify({'error': 'Switch not connected'}), 500
         
         # Get all screens
         screens = screen_service.get_all_screens()
         if not screens:
+            print("[INFO] No screens found")
             return jsonify({'message': 'No screens found'}), 200
         
+        print(f"[INFO] Found {len(screens)} screens to reset")
         default_vlan = cisco_worker.default_screen_vlan
+        print(f"[INFO] Default screen VLAN: {default_vlan}")
+        
         success_count = 0
         failed_ports = []
         
-        for screen in screens:
+        for idx, screen in enumerate(screens, 1):
             screen_port = screen.get('port_number')
+            screen_id = screen.get('screen_id')
             if screen_port:
+                print(f"[INFO] Processing screen {idx}/{len(screens)}: ID={screen_id}, Port={screen_port}")
                 success = cisco_worker.assign_port_to_vlan(screen_port, default_vlan)
                 if success:
                     success_count += 1
+                    print(f"[SUCCESS] Screen {screen_id} port {screen_port} reset successfully ({success_count}/{len(screens)})")
                 else:
                     failed_ports.append(screen_port)
+                    print(f"[ERROR] Failed to reset screen {screen_id} port {screen_port}")
+            else:
+                print(f"[WARNING] Screen {screen_id} has no port number")
+        
+        print(f"[INFO] Reset operation completed: {success_count} successful, {len(failed_ports)} failed")
         
         if failed_ports:
             return jsonify({
@@ -648,6 +760,9 @@ def reset_all_screen_vlans():
                 'message': f'Successfully reset all {success_count} screens to VLAN {default_vlan}'
             }), 200
     except Exception as e:
+        print(f"[ERROR] Exception in reset_all_screen_vlans: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Failed to reset screen VLANs: {str(e)}'}), 500
 
 

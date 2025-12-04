@@ -199,37 +199,48 @@ class CiscoWorker:
             True if successful, False otherwise
         """
         try:
+            print(f"[DEBUG] Starting assign_port_to_vlan: port={port}, vlan={vlan_id}")
+            
             # Ensure VLAN exists
+            print(f"[DEBUG] Checking/creating VLAN {vlan_id}...")
             if not self.create_vlan(vlan_id):
-                print(f"Failed to create VLAN {vlan_id}")
+                print(f"[ERROR] Failed to create VLAN {vlan_id}")
                 return False
+            print(f"[DEBUG] VLAN {vlan_id} ready")
             
             was_in_config = False
             # Enter config mode if not already
             response = self.send_command("")
             if "#" not in response:
+                print(f"[DEBUG] Entering enable mode...")
                 if not self.enable_mode():
+                    print(f"[ERROR] Failed to enter enable mode")
                     return False
             
             response = self.send_command("")
             if CONFIG_INDICATOR not in response.lower():
+                print(f"[DEBUG] Entering config mode...")
                 self.configure_terminal()
                 was_in_config = True
             
             # Configure port
+            print(f"[DEBUG] Configuring interface {port}...")
             self.send_command(f"interface {port}", wait_time=0.3)
             self.send_command("switchport mode access", wait_time=0.3)
+            print(f"[DEBUG] Setting VLAN {vlan_id} on port {port}...")
             self.send_command(f"switchport access vlan {vlan_id}", wait_time=0.3)
             self.send_command("no shutdown", wait_time=0.3)
+            print(f"[DEBUG] Port {port} configured successfully")
             
             if was_in_config:
                 self.exit_config_mode()
             else:
                 self.send_command("end")
             
+            print(f"[SUCCESS] Port {port} assigned to VLAN {vlan_id}")
             return True
         except Exception as e:
-            print(f"Error assigning port {port} to VLAN {vlan_id}: {e}")
+            print(f"[ERROR] Error assigning port {port} to VLAN {vlan_id}: {e}")
             try:
                 self.exit_config_mode()
             except Exception:
