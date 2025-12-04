@@ -13,13 +13,13 @@ CONFIG_INDICATOR = "(config)"
 class CiscoWorker:
     """Worker for managing Cisco 9300 switch via serial connection"""
     
-    def __init__(self, serial_port: str = "COM3", baudrate: int = 9600, 
+    def __init__(self, serial_port: str = "COM4", baudrate: int = 9600, 
                  timeout: float = 2.0, db_path: str = 'boxes.json'):
         """
         Initialize Cisco worker
         
         Args:
-            serial_port: Serial port name (e.g., 'COM3' on Windows, '/dev/ttyUSB0' on Linux)
+            serial_port: Serial port name (e.g., 'COM4' on Windows, '/dev/ttyUSB0' on Linux)
             baudrate: Serial communication baudrate
             timeout: Serial read timeout in seconds
             db_path: Path to the database file

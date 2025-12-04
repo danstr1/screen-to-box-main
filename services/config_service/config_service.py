@@ -44,7 +44,7 @@ class ConfigService:
         self.config_table.insert({'key': key, 'value': value})
         return True
     
-    def get_serial_port(self, default: str = 'COM3') -> str:
+    def get_serial_port(self, default: str = 'COM4') -> str:
         """
         Get the serial port configuration
         
@@ -61,7 +61,7 @@ class ConfigService:
         Set the serial port configuration
         
         Args:
-            serial_port: Serial port string (e.g., 'COM3', '/dev/ttyUSB0')
+            serial_port: Serial port string (e.g., 'COM4', '/dev/ttyUSB0')
             
         Returns:
             True if successful
