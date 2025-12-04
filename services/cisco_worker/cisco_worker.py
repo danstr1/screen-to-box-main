@@ -4,7 +4,7 @@ import re
 from typing import Optional, List, Dict, Tuple
 from services.box_service.box_service import BoxService
 from services.screen_service.screen_service import ScreenService
-from services.cisco_worker.cisco_worker_constants import VIEWER_PORT, VIEWER_VLAN, DEFAULT_BOX_VLAN
+from services.cisco_worker.cisco_worker_constants import VIEWER_PORT, VIEWER_VLAN, DEFAULT_BOX_VLAN, DEFAULT_SCREEN_VLAN
 
 # Constants
 CONFIG_INDICATOR = "(config)"
@@ -31,6 +31,7 @@ class CiscoWorker:
         self.box_service = BoxService(db_path)
         self.screen_service = ScreenService(db_path)
         self.default_box_vlan = DEFAULT_BOX_VLAN
+        self.default_screen_vlan = DEFAULT_SCREEN_VLAN
         
     def connect(self) -> bool:
         """Establish serial connection to the switch"""
@@ -134,8 +135,11 @@ class CiscoWorker:
             True if VLAN exists, False otherwise
         """
         response = self.send_command(f"show vlan id {vlan_id}")
-        # Check if VLAN is in the output
-        return f"VLAN{vlan_id}" in response or f"VLAN {vlan_id}" in response
+
+        if f"VLAN {vlan_id} not found" in response or f"VLAN{vlan_id} not found" in response:
+            return False
+        else:
+            return True
     
     def create_vlan(self, vlan_id: str, vlan_name: Optional[str] = None) -> bool:
         """

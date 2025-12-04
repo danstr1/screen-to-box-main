@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QGridLayout, QMessageBox
 )
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeyEvent
 
 # Color constants
 COLOR_RED = "color: red;"
@@ -246,6 +246,29 @@ class BoxUI(QMainWindow):
         status_font.setPointSize(12)
         self.status_label.setFont(status_font)
         main_layout.addWidget(self.status_label)
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard input - accept number keys"""
+        key = event.key()
+        
+        # Handle number keys (0-9)
+        if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+            digit = str(key - Qt.Key.Key_0)
+            self.add_digit(digit)
+            return
+        
+        # Handle Enter/Return key
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.on_enter()
+            return
+        
+        # Handle Backspace/Delete
+        if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            self.clear_input()
+            return
+        
+        # Call parent handler for other keys
+        super().keyPressEvent(event)
     
     def add_digit(self, digit):
         """Add a digit to the user ID input"""

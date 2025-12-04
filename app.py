@@ -613,6 +613,44 @@ def sync_switch():
         return jsonify({'error': f'Failed to sync switch: {str(e)}'}), 500
 
 
+@app.route('/screens/reset_all_vlans', methods=['POST'])
+def reset_all_screen_vlans():
+    """Reset all screen ports to default VLAN 101"""
+    try:
+        if not cisco_worker.connection or not cisco_worker.connection.is_open:
+            return jsonify({'error': 'Switch not connected'}), 500
+        
+        # Get all screens
+        screens = screen_service.get_all_screens()
+        if not screens:
+            return jsonify({'message': 'No screens found'}), 200
+        
+        default_vlan = cisco_worker.default_screen_vlan
+        success_count = 0
+        failed_ports = []
+        
+        for screen in screens:
+            screen_port = screen.get('port_number')
+            if screen_port:
+                success = cisco_worker.assign_port_to_vlan(screen_port, default_vlan)
+                if success:
+                    success_count += 1
+                else:
+                    failed_ports.append(screen_port)
+        
+        if failed_ports:
+            return jsonify({
+                'message': f'Reset {success_count} screens to VLAN {default_vlan}',
+                'warning': f'Failed to reset ports: {", ".join(failed_ports)}'
+            }), 200
+        else:
+            return jsonify({
+                'message': f'Successfully reset all {success_count} screens to VLAN {default_vlan}'
+            }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to reset screen VLANs: {str(e)}'}), 500
+
+
 @app.route('/switch/connect', methods=['POST'])
 def connect_switch():
     """Connect to the switch"""

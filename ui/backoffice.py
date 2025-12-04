@@ -255,11 +255,13 @@ class BackofficeUI(QMainWindow):
         self.add_screen_btn = QPushButton("Add Screen")
         self.edit_screen_btn = QPushButton("Edit Screen")
         self.delete_screen_btn = QPushButton("Delete Screen")
+        self.reset_screen_vlans_btn = QPushButton("Reset All VLANs to 101")
         self.refresh_screens_btn = QPushButton("Refresh")
         
         btn_layout.addWidget(self.add_screen_btn)
         btn_layout.addWidget(self.edit_screen_btn)
         btn_layout.addWidget(self.delete_screen_btn)
+        btn_layout.addWidget(self.reset_screen_vlans_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.refresh_screens_btn)
         
@@ -279,6 +281,7 @@ class BackofficeUI(QMainWindow):
         self.add_screen_btn.clicked.connect(self.add_screen)
         self.edit_screen_btn.clicked.connect(self.edit_screen)
         self.delete_screen_btn.clicked.connect(self.delete_screen)
+        self.reset_screen_vlans_btn.clicked.connect(self.reset_all_screen_vlans)
         self.refresh_screens_btn.clicked.connect(self.refresh_screens)
         
         return widget
@@ -566,6 +569,25 @@ class BackofficeUI(QMainWindow):
                 self.refresh_screens()
                 self.refresh_assignments()
                 self.refresh_overview()
+    
+    def reset_all_screen_vlans(self):
+        """Reset all screen ports to default VLAN 101"""
+        reply = QMessageBox.question(
+            self, "Confirm Reset",
+            "Are you sure you want to reset all screen ports to VLAN 101?\nThis will affect all screens regardless of their current assignment.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            result = self.api_request("POST", "/screens/reset_all_vlans")
+            if result:
+                message = result.get('message', 'Operation completed')
+                warning = result.get('warning')
+                if warning:
+                    QMessageBox.warning(self, "Partial Success", f"{message}\n\n{warning}")
+                else:
+                    QMessageBox.information(self, "Success", message)
+                self.refresh_screens()
     
     # Box methods
     def refresh_boxes(self):
