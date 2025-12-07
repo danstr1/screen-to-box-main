@@ -436,6 +436,76 @@ def assign_user_to_screen():
     return jsonify(screen), 200
 
 
+@app.route('/screens/unassign_all', methods=['POST'])
+def unassign_all():
+    """Unassign all boxes from all screens"""
+    try:
+        print("[INFO] Starting unassign_all operation...")
+        
+        # Get all screens that have assignments
+        screens = screen_service.get_all_screens()
+        assigned_screens = [s for s in screens if s.get('box_id') is not None]
+        
+        if not assigned_screens:
+            print("[INFO] No assignments found")
+            return jsonify({'message': 'No assignments to remove'}), 200
+        
+        print(f"[INFO] Found {len(assigned_screens)} assigned screens")
+        
+        success_count = 0
+        failed_screens = []
+        
+        for idx, screen in enumerate(assigned_screens, 1):
+            screen_id = screen.get('screen_id')
+            screen_port = screen.get('port_number')
+            print(f"[INFO] Processing screen {idx}/{len(assigned_screens)}: ID={screen_id}, Port={screen_port}")
+            
+            # Unassign in database
+            result = screen_service.unassign_screen(screen_id)
+            if result:
+                # Reset screen port to default VLAN 101 on switch
+                if screen_port:
+                    try:
+                        if cisco_worker.connection and cisco_worker.connection.is_open:
+                            default_screen_vlan = cisco_worker.default_screen_vlan
+                            success = cisco_worker.assign_port_to_vlan(screen_port, default_screen_vlan)
+                            if success:
+                                success_count += 1
+                                print(f"[SUCCESS] Screen {screen_id} port {screen_port} reset to VLAN {default_screen_vlan}")
+                            else:
+                                failed_screens.append(screen_port)
+                                print(f"[ERROR] Failed to reset screen {screen_id} port {screen_port}")
+                        else:
+                            # Database updated but switch not connected
+                            success_count += 1
+                            print(f"[WARNING] Screen {screen_id} unassigned in DB but switch not connected")
+                    except Exception as e:
+                        failed_screens.append(screen_port)
+                        print(f"[ERROR] Exception resetting screen {screen_id} port {screen_port}: {e}")
+                else:
+                    success_count += 1
+            else:
+                failed_screens.append(str(screen_id))
+                print(f"[ERROR] Failed to unassign screen {screen_id}")
+        
+        print(f"[INFO] Unassign all completed: {success_count} successful, {len(failed_screens)} failed")
+        
+        if failed_screens:
+            return jsonify({
+                'message': f'Removed {success_count} assignments',
+                'warning': f'Failed to reset ports: {', '.join(failed_screens)}'
+            }), 200
+        else:
+            return jsonify({
+                'message': f'Successfully removed all {success_count} assignments'
+            }), 200
+    except Exception as e:
+        print(f"[ERROR] Exception in unassign_all: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to remove assignments: {str(e)}'}), 500
+
+
 @app.route('/screens/unassign', methods=['POST'])
 def unassign_box_from_screen():
     """Unassign a box from a screen"""
@@ -456,25 +526,30 @@ def unassign_box_from_screen():
         if not box:
             return jsonify({'error': ERROR_BOX_NOT_FOUND}), 404
         
+        # Get screen to reset its port
+        screen = screen_service.get_screen_by_box_id(box_id)
+        
         # Unassign by box_id
         unassigned = screen_service.unassign_box_from_screen(box_id)
         if not unassigned:
             return jsonify({'error': 'Box has no assigned screen'}), 404
         
-        # Reset box port to default VLAN (1) on switch
-        box_port = box.get('port_number')
-        if box_port:
-            try:
-                if cisco_worker.connection and cisco_worker.connection.is_open:
-                    default_vlan = box.get('vlan_number') or cisco_worker.default_box_vlan
-                    cisco_worker.assign_port_to_vlan(box_port, default_vlan)
-            except Exception as e:
-                print(f"Error resetting box port VLAN on switch: {e}")
+        # Reset SCREEN port to default VLAN 101 on switch
+        if screen:
+            screen_port = screen.get('port_number')
+            if screen_port:
+                try:
+                    if cisco_worker.connection and cisco_worker.connection.is_open:
+                        default_screen_vlan = cisco_worker.default_screen_vlan
+                        print(f"[INFO] Resetting screen port {screen_port} to default VLAN {default_screen_vlan}")
+                        cisco_worker.assign_port_to_vlan(screen_port, default_screen_vlan)
+                except Exception as e:
+                    print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
         return jsonify({'message': 'Box unassigned from screen successfully'}), 200
     
     if screen_id is not None:
-        # Get screen to find associated box
+        # Get screen to reset its port
         screen = screen_service.get_screen_by_id(screen_id)
         if not screen:
             return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
@@ -488,18 +563,16 @@ def unassign_box_from_screen():
         if result is False:
             return jsonify({'error': ERROR_SCREEN_ALREADY_FREE}), 400
         
-        # Reset box port to default VLAN if box was assigned
-        if box_id_from_screen:
-            box = box_service.get_box_by_id(box_id_from_screen)
-            if box:
-                box_port = box.get('port_number')
-                if box_port:
-                    try:
-                        if cisco_worker.connection and cisco_worker.connection.is_open:
-                            default_vlan = box.get('vlan_number') or cisco_worker.default_box_vlan
-                            cisco_worker.assign_port_to_vlan(box_port, default_vlan)
-                    except Exception as e:
-                        print(f"Error resetting box port VLAN on switch: {e}")
+        # Reset SCREEN port to default VLAN 101 on switch
+        screen_port = screen.get('port_number')
+        if screen_port:
+            try:
+                if cisco_worker.connection and cisco_worker.connection.is_open:
+                    default_screen_vlan = cisco_worker.default_screen_vlan
+                    print(f"[INFO] Resetting screen port {screen_port} to default VLAN {default_screen_vlan}")
+                    cisco_worker.assign_port_to_vlan(screen_port, default_screen_vlan)
+            except Exception as e:
+                print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
         return jsonify({'message': 'Screen unassigned successfully'}), 200
 

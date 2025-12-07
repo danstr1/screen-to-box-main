@@ -98,6 +98,32 @@ class ResetVLANsThread(QThread):
             self.error_occurred.emit(f"Error resetting VLANs: {str(e)}")
 
 
+class UnassignAllThread(QThread):
+    """Background thread for removing all assignments"""
+    unassign_completed = Signal(dict)
+    error_occurred = Signal(str)
+    
+    def __init__(self, base_url: str):
+        super().__init__()
+        self.base_url = base_url
+    
+    def run(self):
+        """Run the unassign all operation"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/screens/unassign_all",
+                timeout=120
+            )
+            if response.status_code == 200:
+                self.unassign_completed.emit(response.json())
+            else:
+                self.error_occurred.emit(f"Failed to remove assignments: {response.status_code}")
+        except requests.exceptions.Timeout:
+            self.error_occurred.emit("Operation timed out after 2 minutes")
+        except Exception as e:
+            self.error_occurred.emit(f"Error removing assignments: {str(e)}")
+
+
 class AddEditBoxDialog(QDialog):
     """Dialog for adding or editing a box"""
     
@@ -391,10 +417,12 @@ class BackofficeUI(QMainWindow):
         btn_layout = QHBoxLayout()
         self.assign_btn = QPushButton("Assign Box to Screen")
         self.unassign_btn = QPushButton("Unassign")
+        self.unassign_all_btn = QPushButton("Remove All Assignments")
         self.refresh_assignments_btn = QPushButton("Refresh")
         
         btn_layout.addWidget(self.assign_btn)
         btn_layout.addWidget(self.unassign_btn)
+        btn_layout.addWidget(self.unassign_all_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.refresh_assignments_btn)
         
@@ -413,6 +441,7 @@ class BackofficeUI(QMainWindow):
         # Connect buttons
         self.assign_btn.clicked.connect(self.assign_box_to_screen)
         self.unassign_btn.clicked.connect(self.unassign_box_from_screen)
+        self.unassign_all_btn.clicked.connect(self.remove_all_assignments)
         self.refresh_assignments_btn.clicked.connect(self.refresh_assignments)
         
         return widget
@@ -582,7 +611,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Screen added successfully")
                 self.refresh_screens()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     def edit_screen(self):
         selected = self.screens_table.currentRow()
@@ -606,7 +634,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Screen updated successfully")
                 self.refresh_screens()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     def delete_screen(self):
         selected = self.screens_table.currentRow()
@@ -628,7 +655,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Screen deleted successfully")
                 self.refresh_screens()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     def reconfigure_screen_vlan(self):
         """Reconfigure selected screen's VLAN on the switch based on its assigned box"""
@@ -843,7 +869,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Box added successfully")
                 self.refresh_boxes()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     def edit_box(self):
         selected = self.boxes_table.currentRow()
@@ -870,7 +895,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Box updated successfully")
                 self.refresh_boxes()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     def delete_box(self):
         selected = self.boxes_table.currentRow()
@@ -892,7 +916,6 @@ class BackofficeUI(QMainWindow):
                 QMessageBox.information(self, "Success", "Box deleted successfully")
                 self.refresh_boxes()
                 self.refresh_assignments()
-                self.refresh_overview()
     
     # Assignment methods
     def refresh_assignments(self):
@@ -936,8 +959,6 @@ class BackofficeUI(QMainWindow):
                     self.refresh_assignments()
                     self.refresh_screens()
                     self.refresh_boxes()
-                    self.refresh_overview()
-                    self.refresh_switch_status()
     
     def unassign_box_from_screen(self):
         selected = self.assignments_table.currentRow()
@@ -960,8 +981,57 @@ class BackofficeUI(QMainWindow):
                 self.refresh_assignments()
                 self.refresh_screens()
                 self.refresh_boxes()
-                self.refresh_overview()
-                self.refresh_switch_status()
+    
+    def remove_all_assignments(self):
+        """Remove all box-to-screen assignments"""
+        # Check if there are any assignments
+        if self.assignments_table.rowCount() == 0:
+            QMessageBox.information(self, "No Assignments", "There are no assignments to remove.")
+            return
+        
+        reply = QMessageBox.question(
+            self, "Confirm Remove All",
+            f"Are you sure you want to remove ALL {self.assignments_table.rowCount()} assignments?\nThis will reset all screen ports to VLAN 101.\n\nThis operation may take several minutes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Create progress dialog
+            progress = QProgressDialog("Removing all assignments...", "Cancel", 0, 0, self)
+            progress.setWindowTitle("Removing Assignments")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setCancelButton(None)  # Cannot cancel this operation
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+            
+            # Create and start worker thread
+            self.unassign_all_thread = UnassignAllThread(BaseURL.BASE_URL)
+            self.unassign_all_thread.unassign_completed.connect(lambda result: self._on_unassign_all_completed(result, progress))
+            self.unassign_all_thread.error_occurred.connect(lambda error: self._on_unassign_all_error(error, progress))
+            self.unassign_all_thread.start()
+    
+    def _on_unassign_all_completed(self, result, progress):
+        """Handle unassign all completion"""
+        progress.close()
+        
+        message = result.get('message', 'Operation completed')
+        warning = result.get('warning')
+        if warning:
+            QMessageBox.warning(self, "Partial Success", f"{message}\n\n{warning}")
+        else:
+            QMessageBox.information(self, "Success", message)
+        
+        # Refresh tables
+        self.refresh_assignments()
+        self.refresh_screens()
+        self.refresh_boxes()
+    
+    def _on_unassign_all_error(self, error, progress):
+        """Handle unassign all error"""
+        progress.close()
+        QMessageBox.warning(self, "Error", f"Failed to remove assignments:\n{error}")
     
     # Switch methods
     def refresh_switch_status_background(self):
