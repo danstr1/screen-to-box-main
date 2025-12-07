@@ -60,7 +60,8 @@ class ScreenService:
         screen = self.get_screen_by_id(screen_id)
         if not screen:
             return None
-        
+        if screen['box_id'] == box_id and screen['screen_id'] == screen_id:
+            return screen  # Already assigned to this box
         # Check if screen is already assigned to a box
         if screen['box_id'] is not None:
             return None  # Indicates screen is already assigned

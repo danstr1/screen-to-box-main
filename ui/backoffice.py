@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QTableWidget, QTableWidgetItem, QPushButton, QLineEdit,
     QLabel, QMessageBox, QDialog, QFormLayout, QComboBox, QGroupBox,
-    QTextEdit, QHeaderView, QSplitter, QCheckBox
+    QTextEdit, QHeaderView, QSplitter, QCheckBox, QProgressDialog
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from typing import Optional, Dict, List
@@ -44,6 +44,58 @@ class SwitchStatusThread(QThread):
     def stop(self):
         """Stop the thread"""
         self.running = False
+
+
+class SyncVLANsThread(QThread):
+    """Background thread for syncing VLANs from switch"""
+    sync_completed = Signal(dict)
+    error_occurred = Signal(str)
+    
+    def __init__(self, base_url: str):
+        super().__init__()
+        self.base_url = base_url
+    
+    def run(self):
+        """Run the sync operation"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/switch/ports_vlans",
+                timeout=180
+            )
+            if response.status_code == 200:
+                self.sync_completed.emit(response.json())
+            else:
+                self.error_occurred.emit(f"Failed to sync VLANs: {response.status_code}")
+        except requests.exceptions.Timeout:
+            self.error_occurred.emit("Operation timed out after 3 minutes")
+        except Exception as e:
+            self.error_occurred.emit(f"Error syncing VLANs: {str(e)}")
+
+
+class ResetVLANsThread(QThread):
+    """Background thread for resetting all screen VLANs"""
+    reset_completed = Signal(dict)
+    error_occurred = Signal(str)
+    
+    def __init__(self, base_url: str):
+        super().__init__()
+        self.base_url = base_url
+    
+    def run(self):
+        """Run the reset operation"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/screens/reset_all_vlans",
+                timeout=120
+            )
+            if response.status_code == 200:
+                self.reset_completed.emit(response.json())
+            else:
+                self.error_occurred.emit(f"Failed to reset VLANs: {response.status_code}")
+        except requests.exceptions.Timeout:
+            self.error_occurred.emit("Operation timed out after 2 minutes")
+        except Exception as e:
+            self.error_occurred.emit(f"Error resetting VLANs: {str(e)}")
 
 
 class AddEditBoxDialog(QDialog):
@@ -661,71 +713,106 @@ class BackofficeUI(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Use longer timeout for this operation (120 seconds)
-            result = self.api_request("POST", "/screens/reset_all_vlans", timeout=120)
-            if result:
-                message = result.get('message', 'Operation completed')
-                warning = result.get('warning')
-                if warning:
-                    QMessageBox.warning(self, "Partial Success", f"{message}\n\n{warning}")
-                else:
-                    QMessageBox.information(self, "Success", message)
-                self.refresh_screens()
+            # Create progress dialog
+            progress = QProgressDialog("Resetting all screen VLANs to 101...", "Cancel", 0, 0, self)
+            progress.setWindowTitle("Resetting VLANs")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setCancelButton(None)  # Cannot cancel this operation
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+            
+            # Create and start worker thread
+            self.reset_thread = ResetVLANsThread(BaseURL.BASE_URL)
+            self.reset_thread.reset_completed.connect(lambda result: self._on_reset_completed(result, progress))
+            self.reset_thread.error_occurred.connect(lambda error: self._on_reset_error(error, progress))
+            self.reset_thread.start()
     
     def sync_switch_vlans(self):
         """Sync actual VLANs from switch and display in tables"""
-        # Show progress message
-        self.statusBar().showMessage("Syncing VLANs from switch, please wait...")
-        QApplication.processEvents()  # Update UI immediately
+        # Create progress dialog
+        progress = QProgressDialog("Syncing VLANs from switch...", "Cancel", 0, 0, self)
+        progress.setWindowTitle("Syncing VLANs")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)  # Cannot cancel this operation
+        progress.setValue(0)
+        progress.show()
+        QApplication.processEvents()
         
-        # Use longer timeout for this operation (3 minutes)
-        result = self.api_request("GET", "/switch/ports_vlans", timeout=180, show_error=True)
+        # Create and start worker thread
+        self.sync_thread = SyncVLANsThread(BaseURL.BASE_URL)
+        self.sync_thread.sync_completed.connect(lambda result: self._on_sync_completed(result, progress))
+        self.sync_thread.error_occurred.connect(lambda error: self._on_sync_error(error, progress))
+        self.sync_thread.start()
+    
+    def _on_sync_completed(self, result, progress):
+        """Handle sync completion"""
+        progress.close()
         
-        self.statusBar().clearMessage()
+        boxes_vlans = result.get('boxes', {})
+        screens_vlans = result.get('screens', {})
         
-        if result:
-            boxes_vlans = result.get('boxes', {})
-            screens_vlans = result.get('screens', {})
-            
-            print(f"[DEBUG] Received boxes_vlans: {boxes_vlans}")
-            print(f"[DEBUG] Received screens_vlans: {screens_vlans}")
-            
-            # Update screens table
-            updated_screens = 0
-            for row in range(self.screens_table.rowCount()):
-                screen_id_item = self.screens_table.item(row, 0)
-                if screen_id_item:
-                    screen_id = int(screen_id_item.text())
-                    # Try both integer and string keys
-                    actual_vlan = screens_vlans.get(screen_id) or screens_vlans.get(str(screen_id))
-                    if actual_vlan:
-                        self.screens_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
-                        updated_screens += 1
-                        print(f"[DEBUG] Updated screen {screen_id} with VLAN {actual_vlan}")
-                    else:
-                        self.screens_table.setItem(row, 4, QTableWidgetItem('N/A'))
-                        print(f"[DEBUG] No VLAN found for screen {screen_id}")
-            
-            # Update boxes table
-            updated_boxes = 0
-            for row in range(self.boxes_table.rowCount()):
-                box_id_item = self.boxes_table.item(row, 0)
-                if box_id_item:
-                    box_id = int(box_id_item.text())
-                    # Try both integer and string keys
-                    actual_vlan = boxes_vlans.get(box_id) or boxes_vlans.get(str(box_id))
-                    if actual_vlan:
-                        self.boxes_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
-                        updated_boxes += 1
-                        print(f"[DEBUG] Updated box {box_id} with VLAN {actual_vlan}")
-                    else:
-                        self.boxes_table.setItem(row, 4, QTableWidgetItem('N/A'))
-                        print(f"[DEBUG] No VLAN found for box {box_id}")
-            
-            QMessageBox.information(self, "Success", 
-                f"Synced VLANs from switch:\n{updated_screens} screens updated\n{updated_boxes} boxes updated")
+        print(f"[DEBUG] Received boxes_vlans: {boxes_vlans}")
+        print(f"[DEBUG] Received screens_vlans: {screens_vlans}")
+        
+        # Update screens table
+        updated_screens = 0
+        for row in range(self.screens_table.rowCount()):
+            screen_id_item = self.screens_table.item(row, 0)
+            if screen_id_item:
+                screen_id = int(screen_id_item.text())
+                # Try both integer and string keys
+                actual_vlan = screens_vlans.get(screen_id) or screens_vlans.get(str(screen_id))
+                if actual_vlan:
+                    self.screens_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
+                    updated_screens += 1
+                    print(f"[DEBUG] Updated screen {screen_id} with VLAN {actual_vlan}")
+                else:
+                    self.screens_table.setItem(row, 4, QTableWidgetItem('N/A'))
+                    print(f"[DEBUG] No VLAN found for screen {screen_id}")
+        
+        # Update boxes table
+        updated_boxes = 0
+        for row in range(self.boxes_table.rowCount()):
+            box_id_item = self.boxes_table.item(row, 0)
+            if box_id_item:
+                box_id = int(box_id_item.text())
+                # Try both integer and string keys
+                actual_vlan = boxes_vlans.get(box_id) or boxes_vlans.get(str(box_id))
+                if actual_vlan:
+                    self.boxes_table.setItem(row, 4, QTableWidgetItem(str(actual_vlan)))
+                    updated_boxes += 1
+                    print(f"[DEBUG] Updated box {box_id} with VLAN {actual_vlan}")
+                else:
+                    self.boxes_table.setItem(row, 4, QTableWidgetItem('N/A'))
+                    print(f"[DEBUG] No VLAN found for box {box_id}")
+        
+        QMessageBox.information(self, "Success", 
+            f"Synced VLANs from switch:\n{updated_screens} screens updated\n{updated_boxes} boxes updated")
+    
+    def _on_sync_error(self, error, progress):
+        """Handle sync error"""
+        progress.close()
+        QMessageBox.warning(self, "Error", f"Failed to sync VLANs from switch:\n{error}")
+    
+    def _on_reset_completed(self, result, progress):
+        """Handle reset completion"""
+        progress.close()
+        
+        message = result.get('message', 'Operation completed')
+        warning = result.get('warning')
+        if warning:
+            QMessageBox.warning(self, "Partial Success", f"{message}\n\n{warning}")
         else:
-            QMessageBox.warning(self, "Error", "Failed to sync VLANs from switch. Check console for details.")
+            QMessageBox.information(self, "Success", message)
+        self.refresh_screens()
+    
+    def _on_reset_error(self, error, progress):
+        """Handle reset error"""
+        progress.close()
+        QMessageBox.warning(self, "Error", f"Failed to reset VLANs:\n{error}")
     
     # Box methods
     def refresh_boxes(self):

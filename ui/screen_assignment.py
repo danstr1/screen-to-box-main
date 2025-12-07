@@ -3,7 +3,7 @@ import requests
 from functools import partial
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QGridLayout,
-    QPushButton, QLabel
+    QPushButton, QLabel, QInputDialog
 )
 from PySide6.QtCore import QTimer, Qt, QObject
 from PySide6.QtGui import QFont, QKeyEvent
@@ -259,21 +259,35 @@ def main():
     """Main entry point"""
     import sys
     
-    # Get screen_id from command line argument
-    if len(sys.argv) < 2:
-        print("Usage: python screen_assignment.py <screen_id>")
-        sys.exit(1)
-    
-    try:
-        screen_id = int(sys.argv[1])
-    except ValueError:
-        print("Error: screen_id must be a number")
-        sys.exit(1)
-    
     app = QApplication(sys.argv)
     
     # Set application style
     app.setStyle('Fusion')
+    
+    screen_id = None
+    
+    # Get screen_id from command line argument if provided
+    if len(sys.argv) >= 2:
+        try:
+            screen_id = int(sys.argv[1])
+        except ValueError:
+            print("Error: screen_id must be a number")
+    
+    # If no screen_id provided, ask user to enter it
+    if screen_id is None:
+        screen_id, ok = QInputDialog.getInt(
+            None,
+            "Screen ID Required",
+            "Please enter the Screen ID:",
+            value=1,
+            min=1,
+            max=9999
+        )
+        
+        if not ok:
+            # User cancelled
+            print("Screen ID input cancelled")
+            sys.exit(0)
     
     window = ScreenAssignmentUI(screen_id)
     window.show()
