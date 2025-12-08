@@ -2,7 +2,7 @@ import sys
 import requests
 from functools import partial
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QGridLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QInputDialog
 )
 from PySide6.QtCore import QTimer, Qt, QObject
@@ -69,20 +69,36 @@ class ScreenAssignmentUI(QMainWindow):
     def init_ui(self):
         """Initialize the UI"""
         self.setWindowTitle(f"Screen Assignment - Screen {self.screen_id}")
-        self.setGeometry(100, 100, 600, 700)
         
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         central_widget.setStyleSheet("""
             QWidget {
-                background-color: #26007F;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                          stop:0 #1a1a2e, stop:0.5 #16213e, stop:1 #0f3460);
             }
         """)
         
+        # Main layout with horizontal centering
+        outer_layout = QHBoxLayout()
+        central_widget.setLayout(outer_layout)
+        
+        # Add stretches to center content
+        outer_layout.addStretch()
+        
+        # Content container with max width
+        content_widget = QWidget()
+        content_widget.setMaximumWidth(800)
+        content_widget.setStyleSheet("background: transparent;")
+        outer_layout.addWidget(content_widget)
+        
+        outer_layout.addStretch()
+        
         # Main layout
         main_layout = QVBoxLayout()
-        central_widget.setLayout(main_layout)
+        content_widget.setLayout(main_layout)
+        main_layout.addStretch()
         
         # Title
         title = QLabel(f"Enter User ID for Screen {self.screen_id}")
@@ -93,9 +109,10 @@ class ScreenAssignmentUI(QMainWindow):
         title.setFont(title_font)
         title.setStyleSheet("""
             QLabel {
-                color: #C1E7F5;
+                color: #eaf4f4;
                 background-color: transparent;
                 padding: 10px;
+                font-weight: 600;
             }
         """)
         main_layout.addWidget(title)
@@ -109,12 +126,13 @@ class ScreenAssignmentUI(QMainWindow):
         self.connection_status_label.setFont(status_font)
         self.connection_status_label.setStyleSheet("""
             QLabel {
-                background-color: #1A0055;
-                border: 2px solid #C1E7F5;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #0a1929, stop:1 #132f4c);
+                border: 2px solid #4fc3f7;
                 border-radius: 10px;
                 padding: 10px;
                 margin: 5px;
-                color: #C1E7F5;
+                color: #e3f2fd;
             }
         """)
         main_layout.addWidget(self.connection_status_label)
@@ -128,17 +146,20 @@ class ScreenAssignmentUI(QMainWindow):
         self.disconnect_btn.setMinimumHeight(50)
         self.disconnect_btn.setStyleSheet("""
             QPushButton {
-                background-color: #E63946;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ff5252, stop:1 #f44336);
                 color: white;
-                border: 2px solid #C1E7F5;
+                border: none;
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #D62828;
-                transform: scale(1.02);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ff6b6b, stop:1 #ff5252);
+                border: 2px solid #ffcdd2;
             }
             QPushButton:pressed {
-                background-color: #BA181B;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #e53935, stop:1 #c62828);
             }
         """)
         self.disconnect_btn.clicked.connect(self.on_disconnect)
@@ -153,12 +174,13 @@ class ScreenAssignmentUI(QMainWindow):
         self.display.setFont(display_font)
         self.display.setStyleSheet("""
             QLabel {
-                background-color: #1A0055;
-                border: 3px solid #C1E7F5;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #0a1929, stop:1 #132f4c);
+                border: 2px solid #4fc3f7;
                 border-radius: 15px;
                 padding: 20px;
                 min-height: 80px;
-                color: #C1E7F5;
+                color: #e3f2fd;
             }
         """)
         main_layout.addWidget(self.display)
@@ -185,18 +207,23 @@ class ScreenAssignmentUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #C1E7F5;
-                    color: #26007F;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #4fc3f7, stop:1 #29b6f6);
+                    color: #0a1929;
                     border: none;
                     border-radius: 12px;
                     font-weight: bold;
+                    padding: 5px;
                 }
                 QPushButton:hover {
-                    background-color: #A8D5E8;
-                    transform: scale(1.02);
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #81d4fa, stop:1 #4fc3f7);
+                    border: 2px solid #e3f2fd;
                 }
                 QPushButton:pressed {
-                    background-color: #8FC3DB;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #0288d1, stop:1 #0277bd);
+                    color: white;
                 }
             """)
             
@@ -206,18 +233,23 @@ class ScreenAssignmentUI(QMainWindow):
                 btn.clicked.connect(self.on_enter)
                 btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #35063E;
-                        color: #C1E7F5;
-                        border: 2px solid #C1E7F5;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #00e676, stop:1 #00c853);
+                        color: #0a1929;
+                        border: none;
                         border-radius: 12px;
                         font-weight: bold;
+                        padding: 5px;
                     }
                     QPushButton:hover {
-                        background-color: #4A0856;
-                        border: 2px solid #FFFFFF;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #69f0ae, stop:1 #00e676);
+                        border: 2px solid #e3f2fd;
                     }
                     QPushButton:pressed {
-                        background-color: #250430;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #00c853, stop:1 #00a844);
+                        color: white;
                     }
                 """)
             else:
@@ -241,6 +273,7 @@ class ScreenAssignmentUI(QMainWindow):
             }
         """)
         main_layout.addWidget(self.status_label)
+        main_layout.addStretch()
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard input - accept number keys"""
@@ -315,9 +348,10 @@ class ScreenAssignmentUI(QMainWindow):
             self.connection_status_label.setText(f"✓ Connected to {box_text}")
             self.connection_status_label.setStyleSheet("""
                 QLabel {
-                    background-color: #06D6A0;
-                    color: #26007F;
-                    border: 2px solid #C1E7F5;
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                              stop:0 #00e676, stop:1 #00c853);
+                    color: #0a1929;
+                    border: 2px solid #69f0ae;
                     border-radius: 10px;
                     padding: 10px;
                     margin: 5px;
@@ -329,9 +363,10 @@ class ScreenAssignmentUI(QMainWindow):
             self.connection_status_label.setText("○ Not Connected")
             self.connection_status_label.setStyleSheet("""
                 QLabel {
-                    background-color: #1A0055;
-                    color: #C1E7F5;
-                    border: 2px solid #6C757D;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #0a1929, stop:1 #132f4c);
+                    color: #90a4ae;
+                    border: 2px solid #546e7a;
                     border-radius: 10px;
                     padding: 10px;
                     margin: 5px;
@@ -448,7 +483,7 @@ def main():
             sys.exit(0)
     
     window = ScreenAssignmentUI(screen_id)
-    window.show()
+    window.showFullScreen()
     
     sys.exit(app.exec())
 

@@ -79,20 +79,36 @@ class BoxUI(QMainWindow):
     def init_ui(self):
         """Initialize the UI"""
         self.setWindowTitle("Box Management System")
-        self.setGeometry(100, 100, 600, 700)
         
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         central_widget.setStyleSheet("""
             QWidget {
-                background-color: #26007F;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                          stop:0 #1a1a2e, stop:0.5 #16213e, stop:1 #0f3460);
             }
         """)
         
+        # Main layout with horizontal centering
+        outer_layout = QHBoxLayout()
+        central_widget.setLayout(outer_layout)
+        
+        # Add stretches to center content
+        outer_layout.addStretch()
+        
+        # Content container with max width
+        content_widget = QWidget()
+        content_widget.setMaximumWidth(800)
+        content_widget.setStyleSheet("background: transparent;")
+        outer_layout.addWidget(content_widget)
+        
+        outer_layout.addStretch()
+        
         # Main layout
         main_layout = QVBoxLayout()
-        central_widget.setLayout(main_layout)
+        content_widget.setLayout(main_layout)
+        main_layout.addStretch()
         
         # Title
         title = QLabel("Enter User ID")
@@ -103,9 +119,10 @@ class BoxUI(QMainWindow):
         title.setFont(title_font)
         title.setStyleSheet("""
             QLabel {
-                color: #C1E7F5;
+                color: #eaf4f4;
                 background-color: transparent;
                 padding: 10px;
+                font-weight: 600;
             }
         """)
         main_layout.addWidget(title)
@@ -118,12 +135,13 @@ class BoxUI(QMainWindow):
         self.display.setFont(display_font)
         self.display.setStyleSheet("""
             QLabel {
-                background-color: #1A0055;
-                border: 3px solid #C1E7F5;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #0a1929, stop:1 #132f4c);
+                border: 2px solid #4fc3f7;
                 border-radius: 15px;
                 padding: 20px;
                 min-height: 80px;
-                color: #C1E7F5;
+                color: #e3f2fd;
             }
         """)
         main_layout.addWidget(self.display)
@@ -150,18 +168,23 @@ class BoxUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #C1E7F5;
-                    color: #26007F;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #4fc3f7, stop:1 #29b6f6);
+                    color: #0a1929;
                     border: none;
                     border-radius: 12px;
                     font-weight: bold;
+                    padding: 5px;
                 }
                 QPushButton:hover {
-                    background-color: #A8D5E8;
-                    transform: scale(1.02);
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #81d4fa, stop:1 #4fc3f7);
+                    border: 2px solid #e3f2fd;
                 }
                 QPushButton:pressed {
-                    background-color: #8FC3DB;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                              stop:0 #0288d1, stop:1 #0277bd);
+                    color: white;
                 }
             """)
             
@@ -171,18 +194,23 @@ class BoxUI(QMainWindow):
                 btn.clicked.connect(self.on_enter)
                 btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #35063E;
-                        color: #C1E7F5;
-                        border: 2px solid #C1E7F5;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #00e676, stop:1 #00c853);
+                        color: #0a1929;
+                        border: none;
                         border-radius: 12px;
                         font-weight: bold;
+                        padding: 5px;
                     }
                     QPushButton:hover {
-                        background-color: #4A0856;
-                        border: 2px solid #FFFFFF;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #69f0ae, stop:1 #00e676);
+                        border: 2px solid #e3f2fd;
                     }
                     QPushButton:pressed {
-                        background-color: #250430;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                  stop:0 #00c853, stop:1 #00a844);
+                        color: white;
                     }
                 """)
             else:
@@ -209,17 +237,20 @@ class BoxUI(QMainWindow):
         self.remove_btn.setMinimumHeight(50)
         self.remove_btn.setStyleSheet("""
             QPushButton {
-                background-color: #E63946;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ff5252, stop:1 #f44336);
                 color: white;
-                border: 2px solid #C1E7F5;
+                border: none;
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #D62828;
-                transform: scale(1.02);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ff6b6b, stop:1 #ff5252);
+                border: 2px solid #ffcdd2;
             }
             QPushButton:pressed {
-                background-color: #BA181B;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #e53935, stop:1 #c62828);
             }
         """)
         self.remove_btn.clicked.connect(self.on_remove_assignment)
@@ -230,17 +261,20 @@ class BoxUI(QMainWindow):
         self.assign_new_btn.setMinimumHeight(50)
         self.assign_new_btn.setStyleSheet("""
             QPushButton {
-                background-color: #F77F00;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ffa726, stop:1 #fb8c00);
                 color: white;
-                border: 2px solid #C1E7F5;
+                border: none;
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #D97000;
-                transform: scale(1.02);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ffb74d, stop:1 #ffa726);
+                border: 2px solid #ffe0b2;
             }
             QPushButton:pressed {
-                background-color: #BB6100;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #f57c00, stop:1 #e65100);
             }
         """)
         self.assign_new_btn.clicked.connect(self.on_assign_new)
@@ -251,17 +285,20 @@ class BoxUI(QMainWindow):
         self.do_nothing_btn.setMinimumHeight(50)
         self.do_nothing_btn.setStyleSheet("""
             QPushButton {
-                background-color: #6C757D;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #78909c, stop:1 #546e7a);
                 color: white;
-                border: 2px solid #C1E7F5;
+                border: none;
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #5A6268;
-                transform: scale(1.02);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #90a4ae, stop:1 #78909c);
+                border: 2px solid #cfd8dc;
             }
             QPushButton:pressed {
-                background-color: #4E555B;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #546e7a, stop:1 #37474f);
             }
         """)
         self.do_nothing_btn.clicked.connect(self.on_do_nothing)
@@ -281,6 +318,7 @@ class BoxUI(QMainWindow):
             }
         """)
         main_layout.addWidget(self.status_label)
+        main_layout.addStretch()
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard input - accept number keys"""
@@ -448,7 +486,7 @@ def main():
     app.setStyle('Fusion')
     
     window = BoxUI()
-    window.show()
+    window.showFullScreen()
     
     sys.exit(app.exec())
 
