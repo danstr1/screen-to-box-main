@@ -27,7 +27,7 @@ class ScreenAssignmentClient(QObject):
             response = requests.post(
                 f"{self.base_url}/screens/assign_user",
                 json={"user_id": str(user_id), "screen_id": int(screen_id)},
-                timeout=5
+                timeout=35
             )
             if response.status_code == 200:
                 return response.json(), None
@@ -51,8 +51,20 @@ class ScreenAssignmentUI(QMainWindow):
         self.clear_timer.timeout.connect(self.clear_display)
         self.clear_seconds = 30
         
+        # Status check timer
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.check_screen_status)
+        self.status_check_interval = 10000  # Check every 10 seconds
+        
+        self.is_connected = False
+        self.connected_box_number = None
+        
         self.init_ui()
         self.reset_ui()
+        
+        # Start checking screen status
+        self.check_screen_status()
+        self.status_timer.start(self.status_check_interval)
     
     def init_ui(self):
         """Initialize the UI"""
@@ -62,6 +74,11 @@ class ScreenAssignmentUI(QMainWindow):
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        central_widget.setStyleSheet("""
+            QWidget {
+                background-color: #26007F;
+            }
+        """)
         
         # Main layout
         main_layout = QVBoxLayout()
@@ -74,7 +91,59 @@ class ScreenAssignmentUI(QMainWindow):
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
+        title.setStyleSheet("""
+            QLabel {
+                color: #C1E7F5;
+                background-color: transparent;
+                padding: 10px;
+            }
+        """)
         main_layout.addWidget(title)
+        
+        # Connection status label
+        self.connection_status_label = QLabel("Checking connection...")
+        self.connection_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_font = QFont()
+        status_font.setPointSize(14)
+        status_font.setBold(True)
+        self.connection_status_label.setFont(status_font)
+        self.connection_status_label.setStyleSheet("""
+            QLabel {
+                background-color: #1A0055;
+                border: 2px solid #C1E7F5;
+                border-radius: 10px;
+                padding: 10px;
+                margin: 5px;
+                color: #C1E7F5;
+            }
+        """)
+        main_layout.addWidget(self.connection_status_label)
+        
+        # Disconnect button (initially hidden)
+        self.disconnect_btn = QPushButton("Disconnect")
+        disconnect_font = QFont()
+        disconnect_font.setPointSize(14)
+        disconnect_font.setBold(True)
+        self.disconnect_btn.setFont(disconnect_font)
+        self.disconnect_btn.setMinimumHeight(50)
+        self.disconnect_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E63946;
+                color: white;
+                border: 2px solid #C1E7F5;
+                border-radius: 12px;
+            }
+            QPushButton:hover {
+                background-color: #D62828;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #BA181B;
+            }
+        """)
+        self.disconnect_btn.clicked.connect(self.on_disconnect)
+        self.disconnect_btn.hide()
+        main_layout.addWidget(self.disconnect_btn)
         
         # Display area
         self.display = QLabel("")
@@ -84,12 +153,12 @@ class ScreenAssignmentUI(QMainWindow):
         self.display.setFont(display_font)
         self.display.setStyleSheet("""
             QLabel {
-                background-color: #f0f0f0;
-                border: 2px solid #333;
-                border-radius: 10px;
+                background-color: #1A0055;
+                border: 3px solid #C1E7F5;
+                border-radius: 15px;
                 padding: 20px;
                 min-height: 80px;
-                color: #333333;
+                color: #C1E7F5;
             }
         """)
         main_layout.addWidget(self.display)
@@ -116,16 +185,18 @@ class ScreenAssignmentUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #4CAF50;
-                    color: white;
+                    background-color: #C1E7F5;
+                    color: #26007F;
                     border: none;
-                    border-radius: 10px;
+                    border-radius: 12px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #45a049;
+                    background-color: #A8D5E8;
+                    transform: scale(1.02);
                 }
                 QPushButton:pressed {
-                    background-color: #3d8b40;
+                    background-color: #8FC3DB;
                 }
             """)
             
@@ -135,16 +206,18 @@ class ScreenAssignmentUI(QMainWindow):
                 btn.clicked.connect(self.on_enter)
                 btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #2196F3;
-                        color: white;
-                        border: none;
-                        border-radius: 10px;
+                        background-color: #35063E;
+                        color: #C1E7F5;
+                        border: 2px solid #C1E7F5;
+                        border-radius: 12px;
+                        font-weight: bold;
                     }
                     QPushButton:hover {
-                        background-color: #0b7dda;
+                        background-color: #4A0856;
+                        border: 2px solid #FFFFFF;
                     }
                     QPushButton:pressed {
-                        background-color: #0a6bc2;
+                        background-color: #250430;
                     }
                 """)
             else:
@@ -159,7 +232,14 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_font = QFont()
         status_font.setPointSize(14)
+        status_font.setBold(True)
         self.status_label.setFont(status_font)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                padding: 10px;
+            }
+        """)
         main_layout.addWidget(self.status_label)
     
     def keyPressEvent(self, event: QKeyEvent):
@@ -179,7 +259,9 @@ class ScreenAssignmentUI(QMainWindow):
         
         # Handle Backspace/Delete
         if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
-            self.clear_input()
+            if self.user_id:
+                self.user_id = self.user_id[:-1]
+                self.display.setText(self.user_id)
             return
         
         # Call parent handler for other keys
@@ -210,6 +292,80 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_label.setText("")
         self.status_label.setStyleSheet("")
         self.clear_timer.stop()
+        self.update_connection_status()
+    
+    def check_screen_status(self):
+        """Check if screen is connected to a box"""
+        screen_data, error = self.client.get_screen_status(self.screen_id)
+        
+        if error:
+            self.is_connected = False
+            self.connected_box_number = None
+        elif screen_data:
+            box_id = screen_data.get('box_id')
+            self.is_connected = box_id is not None
+            self.connected_box_number = screen_data.get('box_number') if self.is_connected else None
+        
+        self.update_connection_status()
+    
+    def update_connection_status(self):
+        """Update the connection status label and disconnect button visibility"""
+        if self.is_connected:
+            box_text = f"Box {self.connected_box_number}" if self.connected_box_number else "a box"
+            self.connection_status_label.setText(f"✓ Connected to {box_text}")
+            self.connection_status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #06D6A0;
+                    color: #26007F;
+                    border: 2px solid #C1E7F5;
+                    border-radius: 10px;
+                    padding: 10px;
+                    margin: 5px;
+                    font-weight: bold;
+                }
+            """)
+            self.disconnect_btn.show()
+        else:
+            self.connection_status_label.setText("○ Not Connected")
+            self.connection_status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #1A0055;
+                    color: #C1E7F5;
+                    border: 2px solid #6C757D;
+                    border-radius: 10px;
+                    padding: 10px;
+                    margin: 5px;
+                }
+            """)
+            self.disconnect_btn.hide()
+    
+    def on_disconnect(self):
+        """Handle disconnect button click"""
+        if not self.is_connected:
+            return
+        
+        # Show confirmation in status label
+        box_text = f"Box {self.connected_box_number}" if self.connected_box_number else "box"
+        self.status_label.setText(f"Disconnecting from {box_text}...")
+        self.status_label.setStyleSheet(COLOR_BLUE)
+        
+        # Make API call to disconnect
+        result, error = self.client.disconnect_screen(self.screen_id)
+        
+        if error:
+            self.status_label.setText(f"Error: {error}")
+            self.status_label.setStyleSheet(COLOR_RED)
+            # Start clear timer
+            self.clear_timer.start(self.clear_seconds * 1000)
+        else:
+            self.status_label.setText("Disconnected successfully")
+            self.status_label.setStyleSheet(COLOR_GREEN)
+            # Update connection status immediately
+            self.is_connected = False
+            self.connected_box_number = None
+            self.update_connection_status()
+            # Start clear timer
+            self.clear_timer.start(self.clear_seconds * 1000)
     
     def on_enter(self):
         """Handle enter button press"""
@@ -246,6 +402,8 @@ class ScreenAssignmentUI(QMainWindow):
             # Clear the user input display
             self.display.setText("")
             self.user_id = ""
+            # Update connection status immediately
+            self.check_screen_status()
             # Start clear timer to clear status message after 30 seconds
             self.clear_timer.start(self.clear_seconds * 1000)
     
@@ -279,9 +437,9 @@ def main():
             None,
             "Screen ID Required",
             "Please enter the Screen ID:",
-            value=1,
-            min=1,
-            max=9999
+            1,
+            1,
+            9999
         )
         
         if not ok:

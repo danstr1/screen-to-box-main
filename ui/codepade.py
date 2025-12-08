@@ -84,6 +84,11 @@ class BoxUI(QMainWindow):
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        central_widget.setStyleSheet("""
+            QWidget {
+                background-color: #26007F;
+            }
+        """)
         
         # Main layout
         main_layout = QVBoxLayout()
@@ -96,6 +101,13 @@ class BoxUI(QMainWindow):
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
+        title.setStyleSheet("""
+            QLabel {
+                color: #C1E7F5;
+                background-color: transparent;
+                padding: 10px;
+            }
+        """)
         main_layout.addWidget(title)
         
         # Display area
@@ -106,12 +118,12 @@ class BoxUI(QMainWindow):
         self.display.setFont(display_font)
         self.display.setStyleSheet("""
             QLabel {
-                background-color: #f0f0f0;
-                border: 2px solid #333;
-                border-radius: 10px;
+                background-color: #1A0055;
+                border: 3px solid #C1E7F5;
+                border-radius: 15px;
                 padding: 20px;
                 min-height: 80px;
-                color: #333333;
+                color: #C1E7F5;
             }
         """)
         main_layout.addWidget(self.display)
@@ -138,16 +150,18 @@ class BoxUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #4CAF50;
-                    color: white;
+                    background-color: #C1E7F5;
+                    color: #26007F;
                     border: none;
-                    border-radius: 10px;
+                    border-radius: 12px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #45a049;
+                    background-color: #A8D5E8;
+                    transform: scale(1.02);
                 }
                 QPushButton:pressed {
-                    background-color: #3d8b40;
+                    background-color: #8FC3DB;
                 }
             """)
             
@@ -157,16 +171,18 @@ class BoxUI(QMainWindow):
                 btn.clicked.connect(self.on_enter)
                 btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #2196F3;
-                        color: white;
-                        border: none;
-                        border-radius: 10px;
+                        background-color: #35063E;
+                        color: #C1E7F5;
+                        border: 2px solid #C1E7F5;
+                        border-radius: 12px;
+                        font-weight: bold;
                     }
                     QPushButton:hover {
-                        background-color: #0b7dda;
+                        background-color: #4A0856;
+                        border: 2px solid #FFFFFF;
                     }
                     QPushButton:pressed {
-                        background-color: #0a6bc2;
+                        background-color: #250430;
                     }
                 """)
             else:
@@ -193,13 +209,17 @@ class BoxUI(QMainWindow):
         self.remove_btn.setMinimumHeight(50)
         self.remove_btn.setStyleSheet("""
             QPushButton {
-                background-color: #f44336;
+                background-color: #E63946;
                 color: white;
-                border: none;
-                border-radius: 10px;
+                border: 2px solid #C1E7F5;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #da190b;
+                background-color: #D62828;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #BA181B;
             }
         """)
         self.remove_btn.clicked.connect(self.on_remove_assignment)
@@ -210,13 +230,17 @@ class BoxUI(QMainWindow):
         self.assign_new_btn.setMinimumHeight(50)
         self.assign_new_btn.setStyleSheet("""
             QPushButton {
-                background-color: #FF9800;
+                background-color: #F77F00;
                 color: white;
-                border: none;
-                border-radius: 10px;
+                border: 2px solid #C1E7F5;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #e68900;
+                background-color: #D97000;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #BB6100;
             }
         """)
         self.assign_new_btn.clicked.connect(self.on_assign_new)
@@ -227,13 +251,17 @@ class BoxUI(QMainWindow):
         self.do_nothing_btn.setMinimumHeight(50)
         self.do_nothing_btn.setStyleSheet("""
             QPushButton {
-                background-color: #9E9E9E;
+                background-color: #6C757D;
                 color: white;
-                border: none;
-                border-radius: 10px;
+                border: 2px solid #C1E7F5;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #757575;
+                background-color: #5A6268;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #4E555B;
             }
         """)
         self.do_nothing_btn.clicked.connect(self.on_do_nothing)
@@ -244,7 +272,14 @@ class BoxUI(QMainWindow):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_font = QFont()
         status_font.setPointSize(12)
+        status_font.setBold(True)
         self.status_label.setFont(status_font)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                padding: 10px;
+            }
+        """)
         main_layout.addWidget(self.status_label)
     
     def keyPressEvent(self, event: QKeyEvent):
@@ -264,7 +299,9 @@ class BoxUI(QMainWindow):
         
         # Handle Backspace/Delete
         if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
-            self.clear_input()
+            if self.user_id:
+                self.user_id = self.user_id[:-1]
+                self.display.setText(self.user_id)
             return
         
         # Call parent handler for other keys
