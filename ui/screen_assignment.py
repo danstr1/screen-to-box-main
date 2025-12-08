@@ -106,8 +106,9 @@ class ScreenAssignmentUI(QMainWindow):
         self.setCentralWidget(central_widget)
         central_widget.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                          stop:0 #f5f7fa, stop:0.5 #e8eef5, stop:1 #dfe6f0);
+                background-image: url(background.jpg);
+                background-position: center;
+                background-repeat: no-repeat;
             }
         """)
         
