@@ -506,6 +506,45 @@ def unassign_all():
         return jsonify({'error': f'Failed to remove assignments: {str(e)}'}), 500
 
 
+@app.route('/screens/disconnect', methods=['POST'])
+def disconnect_screen_endpoint():
+    """Disconnect a screen (unassign it from any box)"""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': ERROR_REQUEST_BODY_REQUIRED}), 400
+    
+    screen_id = data.get('screen_id')
+    
+    if screen_id is None:
+        return jsonify({'error': 'screen_id is required'}), 400
+    
+    # Get screen to reset its port
+    screen = screen_service.get_screen_by_id(screen_id)
+    if not screen:
+        return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
+    
+    # Unassign by screen_id
+    result = screen_service.unassign_screen(screen_id)
+    if result is None:
+        return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
+    if result is False:
+        return jsonify({'error': ERROR_SCREEN_ALREADY_FREE}), 400
+    
+    # Reset SCREEN port to default VLAN 101 on switch
+    screen_port = screen.get('port_number')
+    if screen_port:
+        try:
+            if cisco_worker.connection and cisco_worker.connection.is_open:
+                default_screen_vlan = cisco_worker.default_screen_vlan
+                print(f"[INFO] Resetting screen port {screen_port} to default VLAN {default_screen_vlan}")
+                cisco_worker.assign_port_to_vlan(screen_port, default_screen_vlan)
+        except Exception as e:
+            print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
+    
+    return jsonify({'message': 'Screen disconnected successfully'}), 200
+
+
 @app.route('/screens/unassign', methods=['POST'])
 def unassign_box_from_screen():
     """Unassign a box from a screen"""
