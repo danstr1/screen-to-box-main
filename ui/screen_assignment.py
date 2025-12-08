@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QInputDialog
 )
 from PySide6.QtCore import QTimer, Qt, QObject
-from PySide6.QtGui import QFont, QKeyEvent
+from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QPalette
 
 # Color constants
 COLOR_RED = "color: red;"
@@ -104,13 +104,26 @@ class ScreenAssignmentUI(QMainWindow):
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        central_widget.setStyleSheet("""
-            QWidget {
-                background-image: url(background.jpg);
-                background-position: center;
-                background-repeat: no-repeat;
-            }
-        """)
+        
+        # Set background image
+        try:
+            pixmap = QPixmap("background.jpg")
+            if not pixmap.isNull():
+                # Scale to window size
+                scaled_pixmap = pixmap.scaled(self.size(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                palette = QPalette()
+                palette.setBrush(QPalette.ColorRole.Window, scaled_pixmap)
+                central_widget.setAutoFillBackground(True)
+                central_widget.setPalette(palette)
+        except Exception as e:
+            print(f"Could not load background image: {e}")
+            # Fallback to gradient
+            central_widget.setStyleSheet("""
+                QWidget {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                              stop:0 #f5f7fa, stop:0.5 #e8eef5, stop:1 #dfe6f0);
+                }
+            """)
         
         # Main layout with horizontal centering
         outer_layout = QHBoxLayout()
@@ -306,6 +319,19 @@ class ScreenAssignmentUI(QMainWindow):
         """)
         main_layout.addWidget(self.status_label)
         main_layout.addStretch()
+    
+    def resizeEvent(self, event):
+        """Handle window resize to rescale background"""
+        super().resizeEvent(event)
+        try:
+            pixmap = QPixmap("background.jpg")
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(self.size(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                palette = QPalette()
+                palette.setBrush(QPalette.ColorRole.Window, scaled_pixmap)
+                self.centralWidget().setPalette(palette)
+        except Exception as e:
+            pass
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard input - accept number keys"""
