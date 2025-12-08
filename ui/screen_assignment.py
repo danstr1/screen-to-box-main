@@ -37,6 +37,37 @@ class ScreenAssignmentClient(QObject):
                 return None, error_msg
         except requests.exceptions.RequestException as e:
             return None, f"Connection error: {str(e)}"
+    
+    def get_screen_status(self, screen_id):
+        """Get screen connection status"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/screens/{int(screen_id)}",
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                return None, "Failed to get screen status"
+        except requests.exceptions.RequestException as e:
+            return None, f"Connection error: {str(e)}"
+    
+    def disconnect_screen(self, screen_id):
+        """Disconnect screen from box"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/screens/disconnect",
+                json={"screen_id": int(screen_id)},
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json()
+                error_msg = error_data.get('error', 'Failed to disconnect')
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Connection error: {str(e)}"
 
 
 class ScreenAssignmentUI(QMainWindow):
