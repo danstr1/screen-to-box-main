@@ -33,38 +33,77 @@ class SerialReaderThread(QThread):
     def run(self):
         """Run the serial reader thread"""
         try:
-            self.serial_connection = serial.Serial(self.port, self.baudrate, timeout=1)
+            self.serial_connection = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=0.1,
+                xonxoff=False,
+                rtscts=False,
+                dsrdtr=False
+            )
             self.running = True
             buffer = ""
+            print(f"Serial port {self.port} opened successfully")
             
             while self.running:
-                if self.serial_connection and self.serial_connection.in_waiting > 0:
-                    try:
-                        data = self.serial_connection.read(self.serial_connection.in_waiting).decode('utf-8', errors='ignore')
-                        buffer += data
+                try:
+                    if self.serial_connection and self.serial_connection.is_open:
+                        # Read available data
+                        waiting = self.serial_connection.in_waiting
+                        if waiting > 0:
+                            data = self.serial_connection.read(waiting).decode('utf-8', errors='ignore')
+                            buffer += data
+                            print(f"Received data: {repr(data)}, buffer: {repr(buffer)}")
+                            
+                            # Process complete lines
+                            while '\n' in buffer or '\r' in buffer:
+                                if '\n' in buffer:
+                                    line, _, buffer = buffer.partition('\n')
+                                else:
+                                    line, _, buffer = buffer.partition('\r')
+                                
+                                line = line.strip()
+                                print(f"Processing line: {repr(line)}")
+                                
+                                if line and line.isdigit():
+                                    print(f"Emitting valid ID: {line}")
+                                    self.data_received.emit(line)
+                                    buffer = ""  # Clear buffer after valid ID
+                                    break
+                    else:
+                        break
                         
-                        # Process complete lines
-                        while '\n' in buffer or '\r' in buffer:
-                            line, _, buffer = buffer.partition('\n') if '\n' in buffer else buffer.partition('\r')
-                            line = line.strip()
-                            if line and line.isdigit():
-                                self.data_received.emit(line)
-                                buffer = ""  # Clear buffer after valid ID
-                    except Exception as e:
-                        print(f"Error reading serial data: {e}")
+                except Exception as e:
+                    print(f"Error reading serial data: {e}")
+                    break
                 
-                self.msleep(100)  # Small delay to prevent CPU overload
+                self.msleep(50)  # Small delay to prevent CPU overload
+                
         except Exception as e:
             print(f"Error opening serial port {self.port}: {e}")
         finally:
-            if self.serial_connection and self.serial_connection.is_open:
-                self.serial_connection.close()
+            self._cleanup_serial()
+    
+    def _cleanup_serial(self):
+        """Clean up serial connection properly"""
+        try:
+            if self.serial_connection:
+                if self.serial_connection.is_open:
+                    self.serial_connection.cancel_read()
+                    self.serial_connection.cancel_write()
+                    self.serial_connection.close()
+                self.serial_connection = None
+        except Exception as e:
+            print(f"Error during serial cleanup: {e}")
     
     def stop(self):
         """Stop the serial reader thread"""
+        print("Stopping serial reader...")
         self.running = False
-        if self.serial_connection and self.serial_connection.is_open:
-            self.serial_connection.close()
+        self.wait(2000)  # Wait up to 2 seconds for thread to finish
 
 
 class BoxClient(QObject):
@@ -191,6 +230,23 @@ class BoxUI(QMainWindow):
                 }
             """)
         
+        # Clock label (bottom-left corner of screen)
+        self.clock_label = QLabel(central_widget)
+        self.clock_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        clock_font = QFont()
+        clock_font.setPointSize(16)
+        clock_font.setBold(True)
+        self.clock_label.setFont(clock_font)
+        self.clock_label.setStyleSheet("""
+            QLabel {
+                color: #2d1b69;
+                background-color: transparent;
+                padding: 10px;
+                font-weight: 600;
+            }
+        """)
+        self.clock_label.setGeometry(0, 0, 150, 40)  # Will be repositioned in resizeEvent
+        
         # Main layout with horizontal centering
         outer_layout = QHBoxLayout()
         central_widget.setLayout(outer_layout)
@@ -210,23 +266,6 @@ class BoxUI(QMainWindow):
         main_layout = QVBoxLayout()
         content_widget.setLayout(main_layout)
         main_layout.addStretch()
-        
-        # Clock label (top-left)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        clock_font = QFont()
-        clock_font.setPointSize(16)
-        clock_font.setBold(True)
-        self.clock_label.setFont(clock_font)
-        self.clock_label.setStyleSheet("""
-            QLabel {
-                color: #2d1b69;
-                background-color: transparent;
-                padding: 5px;
-                font-weight: 600;
-            }
-        """)
-        main_layout.addWidget(self.clock_label)
         
         # Title
         title = QLabel("Enter User ID")
@@ -449,7 +488,7 @@ class BoxUI(QMainWindow):
         main_layout.addStretch()
     
     def resizeEvent(self, event):
-        """Handle window resize to rescale background"""
+        """Handle window resize to rescale background and reposition clock"""
         super().resizeEvent(event)
         try:
             pixmap = QPixmap("background.jpg")
@@ -460,6 +499,10 @@ class BoxUI(QMainWindow):
                 self.centralWidget().setPalette(palette)
         except Exception as e:
             pass
+        
+        # Reposition clock at bottom-left
+        clock_height = 40
+        self.clock_label.setGeometry(0, self.height() - clock_height, 150, clock_height)
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard input - accept number keys"""
@@ -630,9 +673,8 @@ class BoxUI(QMainWindow):
     
     def closeEvent(self, event):
         """Clean up serial reader on close"""
-        if self.serial_reader:
+        if self.serial_reader and self.serial_reader.isRunning():
             self.serial_reader.stop()
-            self.serial_reader.wait()
         event.accept()
 
 
