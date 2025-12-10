@@ -11,6 +11,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Qt, Signal, QObject, QThread
 from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QPalette
 
+# Read server IP from file or use localhost
+try:
+    with open('server_ip.txt', 'r') as f:
+        SERVER_IP = f.read().strip()
+        if not SERVER_IP:
+            SERVER_IP = "localhost"
+except FileNotFoundError:
+    SERVER_IP = "localhost"
+
+print(f"Using server: {SERVER_IP}")
+
 # Color constants
 COLOR_RED = "color: red;"
 COLOR_BLUE = "color: blue;"
@@ -125,8 +136,10 @@ class SerialReaderThread(QThread):
 class BoxClient(QObject):
     """Client for communicating with the box server"""
     
-    def __init__(self, base_url="http://localhost:5000"):
+    def __init__(self, base_url=None):
         super().__init__()
+        if base_url is None:
+            base_url = f"http://{SERVER_IP}:5000"
         self.base_url = base_url
     
     def check_user_box(self, user_id):
