@@ -1,17 +1,68 @@
 import sys
 import requests
+import serial
+import serial.tools.list_ports
+from datetime import datetime
 from functools import partial
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QInputDialog
 )
-from PySide6.QtCore import QTimer, Qt, QObject
+from PySide6.QtCore import QTimer, Qt, QObject, QThread, Signal
 from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QPalette
 
 # Color constants
 COLOR_RED = "color: red;"
 COLOR_BLUE = "color: blue;"
 COLOR_GREEN = "color: green;"
+
+
+class SerialReaderThread(QThread):
+    """Thread for reading data from serial port"""
+    data_received = Signal(str)
+    
+    def __init__(self, port, baudrate=9600):
+        super().__init__()
+        self.port = port
+        self.baudrate = baudrate
+        self.running = False
+        self.serial_connection = None
+    
+    def run(self):
+        """Run the serial reader thread"""
+        try:
+            self.serial_connection = serial.Serial(self.port, self.baudrate, timeout=1)
+            self.running = True
+            buffer = ""
+            
+            while self.running:
+                if self.serial_connection and self.serial_connection.in_waiting > 0:
+                    try:
+                        data = self.serial_connection.read(self.serial_connection.in_waiting).decode('utf-8', errors='ignore')
+                        buffer += data
+                        
+                        # Process complete lines
+                        while '\n' in buffer or '\r' in buffer:
+                            line, _, buffer = buffer.partition('\n') if '\n' in buffer else buffer.partition('\r')
+                            line = line.strip()
+                            if line and line.isdigit():
+                                self.data_received.emit(line)
+                                buffer = ""  # Clear buffer after valid ID
+                    except Exception as e:
+                        print(f"Error reading serial data: {e}")
+                
+                self.msleep(100)  # Small delay to prevent CPU overload
+        except Exception as e:
+            print(f"Error opening serial port {self.port}: {e}")
+        finally:
+            if self.serial_connection and self.serial_connection.is_open:
+                self.serial_connection.close()
+    
+    def stop(self):
+        """Stop the serial reader thread"""
+        self.running = False
+        if self.serial_connection and self.serial_connection.is_open:
+            self.serial_connection.close()
 
 
 class ScreenAssignmentClient(QObject):
@@ -87,15 +138,51 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_timer.timeout.connect(self.check_screen_status)
         self.status_check_interval = 10000  # Check every 10 seconds
         
+        # Clock timer
+        self.clock_timer = QTimer()
+        self.clock_timer.timeout.connect(self.update_clock)
+        
         self.is_connected = False
         self.connected_box_number = None
         
+        # Serial port reader
+        self.serial_reader = None
+        self.init_serial_port()
+        
         self.init_ui()
+        self.update_clock()  # Initial clock update
+        self.clock_timer.start(60000)  # Update every minute
         self.reset_ui()
         
         # Start checking screen status
         self.check_screen_status()
         self.status_timer.start(self.status_check_interval)
+    
+    def init_serial_port(self):
+        """Initialize serial port reader if device is connected"""
+        try:
+            # Look for USB serial devices
+            ports = serial.tools.list_ports.comports()
+            for port in ports:
+                # Check for USB serial devices (ttyUSB on Linux, COM on Windows)
+                if 'USB' in port.device or 'ttyUSB' in port.device:
+                    print(f"Found USB serial device: {port.device}")
+                    self.serial_reader = SerialReaderThread(port.device)
+                    self.serial_reader.data_received.connect(self.handle_serial_data)
+                    self.serial_reader.start()
+                    return
+            print("No USB serial device found")
+        except Exception as e:
+            print(f"Error initializing serial port: {e}")
+    
+    def handle_serial_data(self, data):
+        """Handle data received from serial port"""
+        print(f"Received from serial: {data}")
+        # Set the user ID and trigger enter
+        self.user_id = data
+        self.display.setText(self.user_id)
+        # Auto-submit after a short delay
+        QTimer.singleShot(500, self.on_enter)
     
     def init_ui(self):
         """Initialize the UI"""
@@ -145,6 +232,23 @@ class ScreenAssignmentUI(QMainWindow):
         content_widget.setLayout(main_layout)
         main_layout.addStretch()
         
+        # Clock label (top-left)
+        self.clock_label = QLabel()
+        self.clock_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        clock_font = QFont()
+        clock_font.setPointSize(16)
+        clock_font.setBold(True)
+        self.clock_label.setFont(clock_font)
+        self.clock_label.setStyleSheet("""
+            QLabel {
+                color: #2d1b69;
+                background-color: transparent;
+                padding: 5px;
+                font-weight: 600;
+            }
+        """)
+        main_layout.addWidget(self.clock_label)
+        
         # Title
         title = QLabel(f"Enter User ID for Screen {self.screen_id}")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -156,7 +260,7 @@ class ScreenAssignmentUI(QMainWindow):
             QLabel {
                 color: #2d1b69;
                 background-color: transparent;
-                padding: 10px;
+                padding: 5px;
                 font-weight: 600;
             }
         """)
@@ -174,8 +278,8 @@ class ScreenAssignmentUI(QMainWindow):
                 background-color: white;
                 border: 3px solid #2d1b69;
                 border-radius: 10px;
-                padding: 10px;
-                margin: 5px;
+                padding: 8px;
+                margin: 3px;
                 color: #2d1b69;
             }
         """)
@@ -187,7 +291,7 @@ class ScreenAssignmentUI(QMainWindow):
         disconnect_font.setPointSize(14)
         disconnect_font.setBold(True)
         self.disconnect_btn.setFont(disconnect_font)
-        self.disconnect_btn.setMinimumHeight(50)
+        self.disconnect_btn.setMinimumHeight(45)
         self.disconnect_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -222,9 +326,9 @@ class ScreenAssignmentUI(QMainWindow):
                 background-color: white;
                 border: 3px solid #2d1b69;
                 border-radius: 15px;
-                padding: 20px;
-                min-height: 100px;
-                max-height: 100px;
+                padding: 15px;
+                min-height: 80px;
+                max-height: 80px;
                 color: #2d1b69;
             }
         """)
@@ -232,26 +336,27 @@ class ScreenAssignmentUI(QMainWindow):
         
         # Keypad layout
         keypad_layout = QGridLayout()
-        keypad_layout.setSpacing(10)
+        keypad_layout.setSpacing(8)
         
-        # Number buttons (1-9)
+        # Number buttons in 2-row layout for low resolution screens
         buttons = [
-            ('1', 0, 0), ('2', 0, 1), ('3', 0, 2),
-            ('4', 1, 0), ('5', 1, 1), ('6', 1, 2),
-            ('7', 2, 0), ('8', 2, 1), ('9', 2, 2),
-            ('Clear', 3, 0), ('0', 3, 1), ('Enter', 3, 2),
+            ('1', 0, 0), ('2', 0, 1), ('3', 0, 2), ('4', 0, 3), ('5', 0, 4), ('6', 0, 5),
+            ('7', 1, 0), ('8', 1, 1), ('9', 1, 2), ('0', 1, 3), ('Clear', 1, 4), ('Enter', 1, 5),
         ]
         
         button_font = QFont()
         button_font.setPointSize(16)
         button_font.setBold(True)
         
+        # Store enter button reference to set as default
+        enter_button = None
+        
         for text, row, col in buttons:
             btn = QPushButton(text)
             btn.setFont(button_font)
-            btn.setMinimumHeight(70)
-            btn.setMaximumHeight(70)
-            btn.setMinimumWidth(100)
+            btn.setMinimumHeight(60)
+            btn.setMaximumHeight(60)
+            btn.setMinimumWidth(90)
             btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -277,6 +382,8 @@ class ScreenAssignmentUI(QMainWindow):
                 btn.clicked.connect(self.clear_input)
             elif text == 'Enter':
                 btn.clicked.connect(self.on_enter)
+                btn.setDefault(True)
+                enter_button = btn
                 btn.setStyleSheet("""
                     QPushButton {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -301,6 +408,10 @@ class ScreenAssignmentUI(QMainWindow):
                 btn.clicked.connect(partial(self.add_digit, text))
             
             keypad_layout.addWidget(btn, row, col)
+        
+        # Set focus to Enter button by default
+        if enter_button:
+            enter_button.setFocus()
         
         main_layout.addLayout(keypad_layout)
         
@@ -411,8 +522,8 @@ class ScreenAssignmentUI(QMainWindow):
                     color: white;
                     border: 3px solid #69f0ae;
                     border-radius: 10px;
-                    padding: 10px;
-                    margin: 5px;
+                    padding: 8px;
+                    margin: 3px;
                     font-weight: bold;
                 }
             """)
@@ -425,8 +536,8 @@ class ScreenAssignmentUI(QMainWindow):
                     color: #546e7a;
                     border: 3px solid #90a4ae;
                     border-radius: 10px;
-                    padding: 10px;
-                    margin: 5px;
+                    padding: 8px;
+                    margin: 3px;
                 }
             """)
             self.disconnect_btn.hide()
@@ -508,6 +619,18 @@ class ScreenAssignmentUI(QMainWindow):
         """Clear display after timeout"""
         self.clear_timer.stop()
         self.reset_ui()
+    
+    def update_clock(self):
+        """Update the clock display"""
+        current_time = datetime.now().strftime("%H:%M")
+        self.clock_label.setText(current_time)
+    
+    def closeEvent(self, event):
+        """Clean up serial reader on close"""
+        if self.serial_reader:
+            self.serial_reader.stop()
+            self.serial_reader.wait()
+        event.accept()
 
 
 def main():

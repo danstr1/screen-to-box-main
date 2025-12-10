@@ -1,11 +1,14 @@
 import sys
 import requests
+import serial
+import serial.tools.list_ports
+from datetime import datetime
 from functools import partial
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QGridLayout, QMessageBox
 )
-from PySide6.QtCore import QTimer, Qt, Signal, QObject
+from PySide6.QtCore import QTimer, Qt, Signal, QObject, QThread
 from PySide6.QtGui import QFont, QKeyEvent, QPixmap, QPalette
 
 # Color constants
@@ -14,6 +17,54 @@ COLOR_BLUE = "color: blue;"
 COLOR_GREEN = "color: green;"
 COLOR_GRAY = "color: gray;"
 COLOR_ORANGE = "color: orange;"
+
+
+class SerialReaderThread(QThread):
+    """Thread for reading data from serial port"""
+    data_received = Signal(str)
+    
+    def __init__(self, port, baudrate=9600):
+        super().__init__()
+        self.port = port
+        self.baudrate = baudrate
+        self.running = False
+        self.serial_connection = None
+    
+    def run(self):
+        """Run the serial reader thread"""
+        try:
+            self.serial_connection = serial.Serial(self.port, self.baudrate, timeout=1)
+            self.running = True
+            buffer = ""
+            
+            while self.running:
+                if self.serial_connection and self.serial_connection.in_waiting > 0:
+                    try:
+                        data = self.serial_connection.read(self.serial_connection.in_waiting).decode('utf-8', errors='ignore')
+                        buffer += data
+                        
+                        # Process complete lines
+                        while '\n' in buffer or '\r' in buffer:
+                            line, _, buffer = buffer.partition('\n') if '\n' in buffer else buffer.partition('\r')
+                            line = line.strip()
+                            if line and line.isdigit():
+                                self.data_received.emit(line)
+                                buffer = ""  # Clear buffer after valid ID
+                    except Exception as e:
+                        print(f"Error reading serial data: {e}")
+                
+                self.msleep(100)  # Small delay to prevent CPU overload
+        except Exception as e:
+            print(f"Error opening serial port {self.port}: {e}")
+        finally:
+            if self.serial_connection and self.serial_connection.is_open:
+                self.serial_connection.close()
+    
+    def stop(self):
+        """Stop the serial reader thread"""
+        self.running = False
+        if self.serial_connection and self.serial_connection.is_open:
+            self.serial_connection.close()
 
 
 class BoxClient(QObject):
@@ -73,8 +124,44 @@ class BoxUI(QMainWindow):
         self.timeout_timer.timeout.connect(self.on_timeout)
         self.timeout_seconds = 30
         
+        # Clock timer
+        self.clock_timer = QTimer()
+        self.clock_timer.timeout.connect(self.update_clock)
+        
+        # Serial port reader
+        self.serial_reader = None
+        self.init_serial_port()
+        
         self.init_ui()
+        self.update_clock()  # Initial clock update
+        self.clock_timer.start(60000)  # Update every minute
         self.reset_to_keypad()
+    
+    def init_serial_port(self):
+        """Initialize serial port reader if device is connected"""
+        try:
+            # Look for USB serial devices
+            ports = serial.tools.list_ports.comports()
+            for port in ports:
+                # Check for USB serial devices (ttyUSB on Linux, COM on Windows)
+                if 'USB' in port.device or 'ttyUSB' in port.device:
+                    print(f"Found USB serial device: {port.device}")
+                    self.serial_reader = SerialReaderThread(port.device)
+                    self.serial_reader.data_received.connect(self.handle_serial_data)
+                    self.serial_reader.start()
+                    return
+            print("No USB serial device found")
+        except Exception as e:
+            print(f"Error initializing serial port: {e}")
+    
+    def handle_serial_data(self, data):
+        """Handle data received from serial port"""
+        print(f"Received from serial: {data}")
+        # Set the user ID and trigger enter
+        self.user_id = data
+        self.display.setText(self.user_id)
+        # Auto-submit after a short delay
+        QTimer.singleShot(500, self.on_enter)
     
     def init_ui(self):
         """Initialize the UI"""
@@ -124,6 +211,23 @@ class BoxUI(QMainWindow):
         content_widget.setLayout(main_layout)
         main_layout.addStretch()
         
+        # Clock label (top-left)
+        self.clock_label = QLabel()
+        self.clock_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        clock_font = QFont()
+        clock_font.setPointSize(16)
+        clock_font.setBold(True)
+        self.clock_label.setFont(clock_font)
+        self.clock_label.setStyleSheet("""
+            QLabel {
+                color: #2d1b69;
+                background-color: transparent;
+                padding: 5px;
+                font-weight: 600;
+            }
+        """)
+        main_layout.addWidget(self.clock_label)
+        
         # Title
         title = QLabel("Enter User ID")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -135,7 +239,7 @@ class BoxUI(QMainWindow):
             QLabel {
                 color: #2d1b69;
                 background-color: transparent;
-                padding: 10px;
+                padding: 5px;
                 font-weight: 600;
             }
         """)
@@ -152,9 +256,9 @@ class BoxUI(QMainWindow):
                 background-color: white;
                 border: 3px solid #2d1b69;
                 border-radius: 15px;
-                padding: 20px;
-                min-height: 100px;
-                max-height: 100px;
+                padding: 15px;
+                min-height: 80px;
+                max-height: 80px;
                 color: #2d1b69;
             }
         """)
@@ -162,26 +266,27 @@ class BoxUI(QMainWindow):
         
         # Keypad layout
         keypad_layout = QGridLayout()
-        keypad_layout.setSpacing(10)
+        keypad_layout.setSpacing(8)
         
-        # Number buttons (1-9)
+        # Number buttons in 2-row layout for low resolution screens
         buttons = [
-            ('1', 0, 0), ('2', 0, 1), ('3', 0, 2),
-            ('4', 1, 0), ('5', 1, 1), ('6', 1, 2),
-            ('7', 2, 0), ('8', 2, 1), ('9', 2, 2),
-            ('Clear', 3, 0), ('0', 3, 1), ('Enter', 3, 2),
+            ('1', 0, 0), ('2', 0, 1), ('3', 0, 2), ('4', 0, 3), ('5', 0, 4), ('6', 0, 5),
+            ('7', 1, 0), ('8', 1, 1), ('9', 1, 2), ('0', 1, 3), ('Clear', 1, 4), ('Enter', 1, 5),
         ]
         
         button_font = QFont()
         button_font.setPointSize(16)
         button_font.setBold(True)
         
+        # Store enter button reference to set as default
+        enter_button = None
+        
         for text, row, col in buttons:
             btn = QPushButton(text)
             btn.setFont(button_font)
-            btn.setMinimumHeight(70)
-            btn.setMaximumHeight(70)
-            btn.setMinimumWidth(100)
+            btn.setMinimumHeight(60)
+            btn.setMaximumHeight(60)
+            btn.setMinimumWidth(90)
             btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -207,6 +312,8 @@ class BoxUI(QMainWindow):
                 btn.clicked.connect(self.clear_input)
             elif text == 'Enter':
                 btn.clicked.connect(self.on_enter)
+                btn.setDefault(True)
+                enter_button = btn
                 btn.setStyleSheet("""
                     QPushButton {
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -232,6 +339,10 @@ class BoxUI(QMainWindow):
             
             keypad_layout.addWidget(btn, row, col)
         
+        # Set focus to Enter button by default
+        if enter_button:
+            enter_button.setFocus()
+        
         main_layout.addLayout(keypad_layout)
         
         # Action buttons container (initially hidden)
@@ -248,7 +359,7 @@ class BoxUI(QMainWindow):
         
         self.remove_btn = QPushButton("Remove Assignment")
         self.remove_btn.setFont(action_button_font)
-        self.remove_btn.setMinimumHeight(50)
+        self.remove_btn.setMinimumHeight(45)
         self.remove_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -273,7 +384,7 @@ class BoxUI(QMainWindow):
         
         self.assign_new_btn = QPushButton("Assign New Box")
         self.assign_new_btn.setFont(action_button_font)
-        self.assign_new_btn.setMinimumHeight(50)
+        self.assign_new_btn.setMinimumHeight(45)
         self.assign_new_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -298,7 +409,7 @@ class BoxUI(QMainWindow):
         
         self.do_nothing_btn = QPushButton("Do Nothing")
         self.do_nothing_btn.setFont(action_button_font)
-        self.do_nothing_btn.setMinimumHeight(50)
+        self.do_nothing_btn.setMinimumHeight(45)
         self.do_nothing_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -511,6 +622,18 @@ class BoxUI(QMainWindow):
         
         # Reset after showing timeout message
         QTimer.singleShot(2000, self.reset_to_keypad)
+    
+    def update_clock(self):
+        """Update the clock display"""
+        current_time = datetime.now().strftime("%H:%M")
+        self.clock_label.setText(current_time)
+    
+    def closeEvent(self, event):
+        """Clean up serial reader on close"""
+        if self.serial_reader:
+            self.serial_reader.stop()
+            self.serial_reader.wait()
+        event.accept()
 
 
 def main():
