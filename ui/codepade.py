@@ -68,9 +68,25 @@ class SerialReaderThread(QThread):
                                 line = line.strip()
                                 print(f"Processing line: {repr(line)}")
                                 
-                                if line and line.isdigit():
-                                    print(f"Emitting valid ID: {line}")
-                                    self.data_received.emit(line)
+                                # Remove control characters (like \x03\x02)
+                                line = ''.join(char for char in line if char.isprintable())
+                                
+                                # Convert letters to digits and keep existing digits
+                                result = ""
+                                for char in line:
+                                    if char.isdigit():
+                                        result += char
+                                    elif char.isalpha():
+                                        # Map A/a=1, B/b=2, ..., Z/z=26
+                                        char_upper = char.upper()
+                                        digit_value = ord(char_upper) - ord('A') + 1
+                                        result += str(digit_value)
+                                
+                                print(f"After filtering and mapping: {repr(result)}")
+                                
+                                if result:
+                                    print(f"Emitting valid ID: {result}")
+                                    self.data_received.emit(result)
                                     buffer = ""  # Clear buffer after valid ID
                                     break
                     else:
