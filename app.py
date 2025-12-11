@@ -393,9 +393,22 @@ def assign_user_to_screen():
     # If the new box is already assigned to another screen, unassign it first
     existing_screen_for_box = screen_service.get_screen_by_box_id(box_id)
     if existing_screen_for_box and existing_screen_for_box.get('screen_id') != screen_id:
-        print(f"[INFO] Box {box_id} is assigned to different screen {existing_screen_for_box.get('screen_id')}, unassigning...")
+        old_screen_id = existing_screen_for_box.get('screen_id')
+        print(f"[INFO] Box {box_id} is assigned to different screen {old_screen_id}, unassigning...")
+        
         # Unassign the box from the old screen
         screen_service.unassign_box_from_screen(box_id)
+        
+        # Reset old screen port to default VLAN 101 on switch (mark as disconnected)
+        old_screen_port = existing_screen_for_box.get('port_number')
+        if old_screen_port:
+            try:
+                if cisco_worker.connection and cisco_worker.connection.is_open:
+                    default_screen_vlan = cisco_worker.default_screen_vlan
+                    print(f"[INFO] Resetting old screen port {old_screen_port} to VLAN {default_screen_vlan} (disconnected)")
+                    cisco_worker.assign_port_to_vlan(old_screen_port, default_screen_vlan)
+            except Exception as e:
+                print(f"[ERROR] Error resetting old screen port VLAN on switch: {e}")
         
         # Reset box port to default VLAN on switch
         box_port = box.get('port_number')
@@ -438,7 +451,7 @@ def assign_user_to_screen():
 
 @app.route('/screens/unassign_all', methods=['POST'])
 def unassign_all():
-    """Unassign all boxes from all screens"""
+    """Unassign all boxes from all screens and remove all user assignments from boxes"""
     try:
         print("[INFO] Starting unassign_all operation...")
         
@@ -447,10 +460,22 @@ def unassign_all():
         assigned_screens = [s for s in screens if s.get('box_id') is not None]
         
         if not assigned_screens:
-            print("[INFO] No assignments found")
-            return jsonify({'message': 'No assignments to remove'}), 200
+            print("[INFO] No screen assignments found")
+            # Still check for user assignments in boxes
+            boxes = box_service.get_all_boxes()
+            assigned_boxes = [b for b in boxes if b.get('user_id') is not None]
+            if not assigned_boxes:
+                print("[INFO] No user assignments found")
+                return jsonify({'message': 'No assignments to remove'}), 200
         
         print(f"[INFO] Found {len(assigned_screens)} assigned screens")
+        
+        # Collect all box IDs from assigned screens for user unassignment
+        box_ids_to_unassign = set()
+        for screen in assigned_screens:
+            box_id = screen.get('box_id')
+            if box_id:
+                box_ids_to_unassign.add(box_id)
         
         success_count = 0
         failed_screens = []
@@ -458,7 +483,8 @@ def unassign_all():
         for idx, screen in enumerate(assigned_screens, 1):
             screen_id = screen.get('screen_id')
             screen_port = screen.get('port_number')
-            print(f"[INFO] Processing screen {idx}/{len(assigned_screens)}: ID={screen_id}, Port={screen_port}")
+            box_id = screen.get('box_id')
+            print(f"[INFO] Processing screen {idx}/{len(assigned_screens)}: ID={screen_id}, Port={screen_port}, Box={box_id}")
             
             # Unassign in database
             result = screen_service.unassign_screen(screen_id)
@@ -488,16 +514,40 @@ def unassign_all():
                 failed_screens.append(str(screen_id))
                 print(f"[ERROR] Failed to unassign screen {screen_id}")
         
-        print(f"[INFO] Unassign all completed: {success_count} successful, {len(failed_screens)} failed")
+        # Now unassign users from all boxes that were assigned to screens
+        users_unassigned = 0
+        for box_id in box_ids_to_unassign:
+            box = box_service.get_box_by_id(box_id)
+            if box and box.get('user_id'):
+                user_id = box.get('user_id')
+                print(f"[INFO] Unassigning user {user_id} from box {box_id}")
+                if box_service.unassign_user_from_box(user_id):
+                    users_unassigned += 1
+                    print(f"[SUCCESS] User {user_id} unassigned from box {box_id}")
+                else:
+                    print(f"[ERROR] Failed to unassign user {user_id} from box {box_id}")
+        
+        # Also unassign users from any other boxes that might have users but no screen assignment
+        all_boxes = box_service.get_all_boxes()
+        for box in all_boxes:
+            if box.get('user_id') and box.get('box_id') not in box_ids_to_unassign:
+                user_id = box.get('user_id')
+                box_id = box.get('box_id')
+                print(f"[INFO] Unassigning user {user_id} from unassigned box {box_id}")
+                if box_service.unassign_user_from_box(user_id):
+                    users_unassigned += 1
+                    print(f"[SUCCESS] User {user_id} unassigned from box {box_id}")
+        
+        print(f"[INFO] Unassign all completed: {success_count} screens processed, {users_unassigned} users unassigned, {len(failed_screens)} failures")
         
         if failed_screens:
             return jsonify({
-                'message': f'Removed {success_count} assignments',
+                'message': f'Removed {success_count} screen assignments and unassigned {users_unassigned} users',
                 'warning': f'Failed to reset ports: {', '.join(failed_screens)}'
             }), 200
         else:
             return jsonify({
-                'message': f'Successfully removed all {success_count} assignments'
+                'message': f'Successfully removed all {success_count} screen assignments and unassigned {users_unassigned} users'
             }), 200
     except Exception as e:
         print(f"[ERROR] Exception in unassign_all: {str(e)}")
@@ -508,7 +558,7 @@ def unassign_all():
 
 @app.route('/screens/disconnect', methods=['POST'])
 def disconnect_screen_endpoint():
-    """Disconnect a screen (unassign it from any box)"""
+    """Disconnect a screen (unassign it from any box) and unassign user from box"""
     data = request.get_json()
     
     if not data:
@@ -519,12 +569,23 @@ def disconnect_screen_endpoint():
     if screen_id is None:
         return jsonify({'error': 'screen_id is required'}), 400
     
-    # Get screen to reset its port
+    # Get screen to reset its port and find the associated box
     screen = screen_service.get_screen_by_id(screen_id)
     if not screen:
         return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
     
-    # Unassign by screen_id
+    # Get the box_id that was assigned to this screen
+    box_id = screen.get('box_id')
+    
+    # If there's a box assigned, get the user_id and unassign the user from the box
+    if box_id:
+        box = box_service.get_box_by_id(box_id)
+        if box and box.get('user_id'):
+            user_id = box.get('user_id')
+            print(f"[INFO] Unassigning user {user_id} from box {box_id}")
+            box_service.unassign_user_from_box(user_id)
+    
+    # Unassign screen from box
     result = screen_service.unassign_screen(screen_id)
     if result is None:
         return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
@@ -542,7 +603,7 @@ def disconnect_screen_endpoint():
         except Exception as e:
             print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
     
-    return jsonify({'message': 'Screen disconnected successfully'}), 200
+    return jsonify({'message': 'Screen disconnected and user unassigned successfully'}), 200
 
 
 @app.route('/screens/unassign', methods=['POST'])
@@ -565,6 +626,12 @@ def unassign_box_from_screen():
         if not box:
             return jsonify({'error': ERROR_BOX_NOT_FOUND}), 404
         
+        # Unassign user from box if one exists
+        user_id = box.get('user_id')
+        if user_id:
+            print(f"[INFO] Unassigning user {user_id} from box {box_id}")
+            box_service.unassign_user_from_box(user_id)
+        
         # Get screen to reset its port
         screen = screen_service.get_screen_by_box_id(box_id)
         
@@ -585,7 +652,8 @@ def unassign_box_from_screen():
                 except Exception as e:
                     print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
-        return jsonify({'message': 'Box unassigned from screen successfully'}), 200
+        user_msg = f" and user {user_id}" if user_id else ""
+        return jsonify({'message': f'Box unassigned from screen{user_msg} successfully'}), 200
     
     if screen_id is not None:
         # Get screen to reset its port
@@ -594,6 +662,16 @@ def unassign_box_from_screen():
             return jsonify({'error': ERROR_SCREEN_NOT_FOUND}), 404
         
         box_id_from_screen = screen.get('box_id')
+        
+        # Unassign user from box if screen is assigned to a box
+        user_id = None
+        if box_id_from_screen:
+            box = box_service.get_box_by_id(box_id_from_screen)
+            if box:
+                user_id = box.get('user_id')
+                if user_id:
+                    print(f"[INFO] Unassigning user {user_id} from box {box_id_from_screen}")
+                    box_service.unassign_user_from_box(user_id)
         
         # Unassign by screen_id
         result = screen_service.unassign_screen(screen_id)
@@ -613,7 +691,8 @@ def unassign_box_from_screen():
             except Exception as e:
                 print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
-        return jsonify({'message': 'Screen unassigned successfully'}), 200
+        user_msg = f" and user {user_id}" if user_id else ""
+        return jsonify({'message': f'Screen unassigned{user_msg} successfully'}), 200
 
 
 @app.route('/screens/box/<int:box_id>', methods=['GET'])
