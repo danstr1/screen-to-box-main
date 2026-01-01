@@ -526,7 +526,7 @@ class ScreenAssignmentUI(QMainWindow):
             self.add_digit(digit)
             return
         
-        # Handle Enter/Return key
+        # Handle Enter/Return key (including newline from external devices)
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.on_enter()
             return
@@ -536,6 +536,23 @@ class ScreenAssignmentUI(QMainWindow):
             if self.user_id:
                 self.user_id = self.user_id[:-1]
                 self.display.setText(self.user_id)
+            return
+        
+        # Handle text input from external devices (letters get mapped to digits)
+        text = event.text()
+        if text:
+            for char in text:
+                if char == '\n' or char == '\r':
+                    # Newline triggers enter
+                    self.on_enter()
+                    return
+                elif char.isdigit():
+                    self.add_digit(char)
+                elif char.isalpha():
+                    # Map A/a=1, B/b=2, ..., Z/z=26
+                    char_upper = char.upper()
+                    digit_value = ord(char_upper) - ord('A') + 1
+                    self.add_digit(str(digit_value))
             return
         
         # Call parent handler for other keys
