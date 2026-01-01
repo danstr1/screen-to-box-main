@@ -360,6 +360,8 @@ class ScreenAssignmentUI(QMainWindow):
         disconnect_font.setBold(True)
         self.disconnect_btn.setFont(disconnect_font)
         self.disconnect_btn.setMinimumHeight(45)
+        self.disconnect_btn.setAutoDefault(False)
+        self.disconnect_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.disconnect_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -425,6 +427,10 @@ class ScreenAssignmentUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setMaximumHeight(60)
             btn.setMinimumWidth(90)
+            # Prevent buttons from capturing Enter key
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -450,7 +456,8 @@ class ScreenAssignmentUI(QMainWindow):
                 btn.clicked.connect(self.clear_input)
             elif text == 'Enter':
                 btn.clicked.connect(self.on_enter)
-                btn.setDefault(True)
+                # Allow Enter button to have focus for visual feedback
+                btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
                 enter_button = btn
                 btn.setStyleSheet("""
                     QPushButton {
@@ -471,6 +478,9 @@ class ScreenAssignmentUI(QMainWindow):
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                                   stop:0 #00963f, stop:1 #007d34);
                     }
+                    QPushButton:focus {
+                        border: 3px solid #69f0ae;
+                    }
                 """)
             else:
                 btn.clicked.connect(partial(self.add_digit, text))
@@ -480,6 +490,7 @@ class ScreenAssignmentUI(QMainWindow):
         # Set focus to Enter button by default
         if enter_button:
             enter_button.setFocus()
+            self.enter_button = enter_button  # Store reference for refocusing
         
         main_layout.addLayout(keypad_layout)
         
@@ -575,6 +586,9 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_label.setText("")
         self.status_label.setStyleSheet("")
         self.clear_timer.stop()
+        # Refocus Enter button
+        if hasattr(self, 'enter_button'):
+            self.enter_button.setFocus()
     
     def reset_ui(self):
         """Reset UI to initial state"""
@@ -584,6 +598,9 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_label.setStyleSheet("")
         self.clear_timer.stop()
         self.update_connection_status()
+        # Refocus Enter button
+        if hasattr(self, 'enter_button'):
+            self.enter_button.setFocus()
     
     def check_screen_status(self):
         """Check if screen is connected to a box"""

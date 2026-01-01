@@ -355,6 +355,10 @@ class BoxUI(QMainWindow):
             btn.setMinimumHeight(60)
             btn.setMaximumHeight(60)
             btn.setMinimumWidth(90)
+            # Prevent buttons from capturing Enter key
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -380,7 +384,8 @@ class BoxUI(QMainWindow):
                 btn.clicked.connect(self.clear_input)
             elif text == 'Enter':
                 btn.clicked.connect(self.on_enter)
-                btn.setDefault(True)
+                # Allow Enter button to have focus for visual feedback
+                btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
                 enter_button = btn
                 btn.setStyleSheet("""
                     QPushButton {
@@ -401,6 +406,9 @@ class BoxUI(QMainWindow):
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                                   stop:0 #00963f, stop:1 #007d34);
                     }
+                    QPushButton:focus {
+                        border: 3px solid #69f0ae;
+                    }
                 """)
             else:
                 btn.clicked.connect(partial(self.add_digit, text))
@@ -410,6 +418,7 @@ class BoxUI(QMainWindow):
         # Set focus to Enter button by default
         if enter_button:
             enter_button.setFocus()
+            self.enter_button = enter_button  # Store reference for refocusing
         
         main_layout.addLayout(keypad_layout)
         
@@ -428,6 +437,8 @@ class BoxUI(QMainWindow):
         self.remove_btn = QPushButton("Remove Assignment")
         self.remove_btn.setFont(action_button_font)
         self.remove_btn.setMinimumHeight(45)
+        self.remove_btn.setAutoDefault(False)
+        self.remove_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.remove_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -453,6 +464,8 @@ class BoxUI(QMainWindow):
         self.assign_new_btn = QPushButton("Assign New Box")
         self.assign_new_btn.setFont(action_button_font)
         self.assign_new_btn.setMinimumHeight(45)
+        self.assign_new_btn.setAutoDefault(False)
+        self.assign_new_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.assign_new_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -478,6 +491,8 @@ class BoxUI(QMainWindow):
         self.do_nothing_btn = QPushButton("Do Nothing")
         self.do_nothing_btn.setFont(action_button_font)
         self.do_nothing_btn.setMinimumHeight(45)
+        self.do_nothing_btn.setAutoDefault(False)
+        self.do_nothing_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.do_nothing_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -588,6 +603,9 @@ class BoxUI(QMainWindow):
         self.display.setText("")
         self.status_label.setText("")
         self.reset_to_keypad()
+        # Refocus Enter button
+        if hasattr(self, 'enter_button'):
+            self.enter_button.setFocus()
     
     def reset_to_keypad(self):
         """Reset UI to keypad state"""
@@ -597,6 +615,9 @@ class BoxUI(QMainWindow):
         self.display.setText("")
         self.status_label.setText("")
         self.timeout_timer.stop()
+        # Refocus Enter button
+        if hasattr(self, 'enter_button'):
+            self.enter_button.setFocus()
     
     def on_enter(self):
         """Handle enter button press"""
