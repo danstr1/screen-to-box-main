@@ -172,7 +172,7 @@ class ScreenAssignmentClient(QObject):
             return None, f"Connection error: {str(e)}"
     
     def disconnect_screen(self, screen_id):
-        """Disconnect screen from box"""
+        """Disconnect screen from box and remove user from system"""
         try:
             response = requests.post(
                 f"{self.base_url}/screens/disconnect",
@@ -187,6 +187,23 @@ class ScreenAssignmentClient(QObject):
                 return None, error_msg
         except requests.exceptions.RequestException as e:
             return None, f"Connection error: {str(e)}"
+    
+    def unassign_screen(self, screen_id):
+        """Unassign screen from box but keep user assignment"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/screens/unassign",
+                json={"screen_id": int(screen_id), "keep_user": True},
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json()
+                error_msg = error_data.get('error', 'Failed to unassign')
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Connection error: {str(e)}"
 
 
 class ScreenAssignmentUI(QMainWindow):
@@ -197,9 +214,10 @@ class ScreenAssignmentUI(QMainWindow):
         self.client = ScreenAssignmentClient()
         self.screen_id = screen_id
         self.user_id = ""
+        self.input_locked = False  # Prevent input after Enter until timeout
         self.clear_timer = QTimer()
         self.clear_timer.timeout.connect(self.clear_display)
-        self.clear_seconds = 30
+        self.clear_seconds = 7
         
         # Status check timer
         self.status_timer = QTimer()
@@ -353,16 +371,52 @@ class ScreenAssignmentUI(QMainWindow):
         """)
         main_layout.addWidget(self.connection_status_label)
         
-        # Disconnect button (initially hidden)
-        self.disconnect_btn = QPushButton("Disconnect")
+        # Disconnect buttons container (initially hidden)
+        self.disconnect_container = QWidget()
+        self.disconnect_container.setStyleSheet("background: transparent;")
+        disconnect_layout = QHBoxLayout()
+        disconnect_layout.setSpacing(10)
+        self.disconnect_container.setLayout(disconnect_layout)
+        
         disconnect_font = QFont()
-        disconnect_font.setPointSize(14)
+        disconnect_font.setPointSize(12)
         disconnect_font.setBold(True)
-        self.disconnect_btn.setFont(disconnect_font)
-        self.disconnect_btn.setMinimumHeight(45)
-        self.disconnect_btn.setAutoDefault(False)
-        self.disconnect_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.disconnect_btn.setStyleSheet("""
+        
+        # Disconnect from this screen button (yellow - less severe)
+        self.disconnect_screen_btn = QPushButton("Disconnect from this screen")
+        self.disconnect_screen_btn.setFont(disconnect_font)
+        self.disconnect_screen_btn.setMinimumHeight(45)
+        self.disconnect_screen_btn.setAutoDefault(False)
+        self.disconnect_screen_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.disconnect_screen_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #fdd835, stop:1 #f9a825);
+                color: #333333;
+                border: none;
+                border-radius: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #ffeb3b, stop:1 #fdd835);
+                border: 2px solid #fff176;
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #f57f17, stop:1 #e65100);
+            }
+        """)
+        self.disconnect_screen_btn.clicked.connect(self.on_disconnect_screen)
+        disconnect_layout.addWidget(self.disconnect_screen_btn)
+        
+        # Disconnect from system button (red - more severe)
+        self.disconnect_system_btn = QPushButton("Disconnect from system")
+        self.disconnect_system_btn.setFont(disconnect_font)
+        self.disconnect_system_btn.setMinimumHeight(45)
+        self.disconnect_system_btn.setAutoDefault(False)
+        self.disconnect_system_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.disconnect_system_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                           stop:0 #e53935, stop:1 #c62828);
@@ -381,13 +435,16 @@ class ScreenAssignmentUI(QMainWindow):
                                           stop:0 #b71c1c, stop:1 #8e0000);
             }
         """)
-        self.disconnect_btn.clicked.connect(self.on_disconnect)
-        self.disconnect_btn.hide()
-        main_layout.addWidget(self.disconnect_btn)
+        self.disconnect_system_btn.clicked.connect(self.on_disconnect_system)
+        disconnect_layout.addWidget(self.disconnect_system_btn)
+        
+        self.disconnect_container.hide()
+        main_layout.addWidget(self.disconnect_container)
         
         # Display area
         self.display = QLabel("")
         self.display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.display.setWordWrap(True)
         display_font = QFont()
         display_font.setPointSize(24)
         self.display.setFont(display_font)
@@ -571,6 +628,8 @@ class ScreenAssignmentUI(QMainWindow):
     
     def add_digit(self, digit):
         """Add a digit to the user ID input"""
+        if self.input_locked:
+            return
         if len(self.user_id) < 20:  # Limit input length
             self.user_id += digit
             self.display.setText(self.user_id)
@@ -597,6 +656,7 @@ class ScreenAssignmentUI(QMainWindow):
         self.status_label.setText("")
         self.status_label.setStyleSheet("")
         self.clear_timer.stop()
+        self.input_locked = False  # Unlock input
         self.update_connection_status()
         # Refocus Enter button
         if hasattr(self, 'enter_button'):
@@ -633,7 +693,7 @@ class ScreenAssignmentUI(QMainWindow):
                     font-weight: bold;
                 }
             """)
-            self.disconnect_btn.show()
+            self.disconnect_container.show()
         else:
             self.connection_status_label.setText("○ Not Connected")
             self.connection_status_label.setStyleSheet("""
@@ -646,19 +706,47 @@ class ScreenAssignmentUI(QMainWindow):
                     margin: 3px;
                 }
             """)
-            self.disconnect_btn.hide()
+            self.disconnect_container.hide()
     
-    def on_disconnect(self):
-        """Handle disconnect button click"""
+    def on_disconnect_screen(self):
+        """Handle disconnect from this screen button - keeps user assignment"""
         if not self.is_connected:
             return
         
         # Show confirmation in status label
         box_text = f"Box {self.connected_box_number}" if self.connected_box_number else "box"
-        self.status_label.setText(f"Disconnecting from {box_text}...")
+        self.status_label.setText(f"Disconnecting {box_text} from this screen...")
         self.status_label.setStyleSheet(COLOR_BLUE)
         
-        # Make API call to disconnect
+        # Make API call to unassign screen (keeps user assignment)
+        result, error = self.client.unassign_screen(self.screen_id)
+        
+        if error:
+            self.status_label.setText(f"Error: {error}")
+            self.status_label.setStyleSheet(COLOR_RED)
+            # Start clear timer
+            self.clear_timer.start(self.clear_seconds * 1000)
+        else:
+            self.status_label.setText("Disconnected from screen. User can connect to another screen.")
+            self.status_label.setStyleSheet(COLOR_GREEN)
+            # Update connection status immediately
+            self.is_connected = False
+            self.connected_box_number = None
+            self.update_connection_status()
+            # Start clear timer
+            self.clear_timer.start(self.clear_seconds * 1000)
+    
+    def on_disconnect_system(self):
+        """Handle disconnect from system button - removes user from box"""
+        if not self.is_connected:
+            return
+        
+        # Show confirmation in status label
+        box_text = f"Box {self.connected_box_number}" if self.connected_box_number else "box"
+        self.status_label.setText(f"Disconnecting {box_text} from system...")
+        self.status_label.setStyleSheet(COLOR_BLUE)
+        
+        # Make API call to disconnect (removes user from box)
         result, error = self.client.disconnect_screen(self.screen_id)
         
         if error:
@@ -667,7 +755,7 @@ class ScreenAssignmentUI(QMainWindow):
             # Start clear timer
             self.clear_timer.start(self.clear_seconds * 1000)
         else:
-            self.status_label.setText("Disconnected successfully")
+            self.status_label.setText("Disconnected from system. User removed from box.")
             self.status_label.setStyleSheet(COLOR_GREEN)
             # Update connection status immediately
             self.is_connected = False
@@ -678,6 +766,9 @@ class ScreenAssignmentUI(QMainWindow):
     
     def on_enter(self):
         """Handle enter button press"""
+        if self.input_locked:
+            return
+        
         if not self.user_id:
             self.status_label.setText("Please enter a user ID")
             self.status_label.setStyleSheet(COLOR_RED)
@@ -693,6 +784,9 @@ class ScreenAssignmentUI(QMainWindow):
             self.status_label.setText("Invalid user ID - numbers only")
             self.status_label.setStyleSheet(COLOR_RED)
             return
+        
+        # Lock input after Enter is pressed
+        self.input_locked = True
         
         # Disable input during request
         self.status_label.setText("Assigning user to screen...")

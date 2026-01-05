@@ -188,9 +188,10 @@ class BoxUI(QMainWindow):
         self.client = BoxClient()
         self.user_id = ""
         self.current_box = None
+        self.input_locked = False  # Prevent input after Enter until timeout
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self.on_timeout)
-        self.timeout_seconds = 30
+        self.timeout_seconds = 7
         
         # Clock timer
         self.clock_timer = QTimer()
@@ -316,6 +317,7 @@ class BoxUI(QMainWindow):
         # Display area
         self.display = QLabel("")
         self.display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.display.setWordWrap(True)
         display_font = QFont()
         display_font.setPointSize(24)
         self.display.setFont(display_font)
@@ -326,7 +328,6 @@ class BoxUI(QMainWindow):
                 border-radius: 15px;
                 padding: 15px;
                 min-height: 80px;
-                max-height: 80px;
                 color: #2d1b69;
             }
         """)
@@ -592,6 +593,8 @@ class BoxUI(QMainWindow):
     
     def add_digit(self, digit):
         """Add a digit to the user ID input"""
+        if self.input_locked:
+            return
         if len(self.user_id) < 20:  # Limit input length
             self.user_id += digit
             self.display.setText(self.user_id)
@@ -615,12 +618,16 @@ class BoxUI(QMainWindow):
         self.display.setText("")
         self.status_label.setText("")
         self.timeout_timer.stop()
+        self.input_locked = False  # Unlock input
         # Refocus Enter button
         if hasattr(self, 'enter_button'):
             self.enter_button.setFocus()
     
     def on_enter(self):
         """Handle enter button press"""
+        if self.input_locked:
+            return
+        
         if not self.user_id:
             self.status_label.setText("Please enter a user ID")
             self.status_label.setStyleSheet(COLOR_RED)
@@ -639,6 +646,9 @@ class BoxUI(QMainWindow):
         
         # Check if user has a box (user_id is already a string)
         result = self.client.check_user_box(self.user_id)
+        
+        # Lock input after Enter is pressed
+        self.input_locked = True
         
         if result and result.get('has_box'):
             # User has a box - show action options

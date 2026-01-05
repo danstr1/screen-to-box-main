@@ -608,7 +608,7 @@ def disconnect_screen_endpoint():
 
 @app.route('/screens/unassign', methods=['POST'])
 def unassign_box_from_screen():
-    """Unassign a box from a screen"""
+    """Unassign a box from a screen. Use keep_user=true to keep user assignment."""
     data = request.get_json()
     
     if not data:
@@ -616,6 +616,7 @@ def unassign_box_from_screen():
     
     box_id = data.get('box_id')
     screen_id = data.get('screen_id')
+    keep_user = data.get('keep_user', False)  # If true, don't remove user from box
     
     if box_id is None and screen_id is None:
         return jsonify({'error': 'Either box_id or screen_id is required'}), 400
@@ -626,9 +627,9 @@ def unassign_box_from_screen():
         if not box:
             return jsonify({'error': ERROR_BOX_NOT_FOUND}), 404
         
-        # Unassign user from box if one exists
+        # Unassign user from box if one exists (unless keep_user is true)
         user_id = box.get('user_id')
-        if user_id:
+        if user_id and not keep_user:
             print(f"[INFO] Unassigning user {user_id} from box {box_id}")
             box_service.unassign_user_from_box(user_id)
         
@@ -652,6 +653,8 @@ def unassign_box_from_screen():
                 except Exception as e:
                     print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
+        if keep_user:
+            return jsonify({'message': 'Screen disconnected. User assignment kept.'}), 200
         user_msg = f" and user {user_id}" if user_id else ""
         return jsonify({'message': f'Box unassigned from screen{user_msg} successfully'}), 200
     
@@ -663,13 +666,13 @@ def unassign_box_from_screen():
         
         box_id_from_screen = screen.get('box_id')
         
-        # Unassign user from box if screen is assigned to a box
+        # Unassign user from box if screen is assigned to a box (unless keep_user is true)
         user_id = None
         if box_id_from_screen:
             box = box_service.get_box_by_id(box_id_from_screen)
             if box:
                 user_id = box.get('user_id')
-                if user_id:
+                if user_id and not keep_user:
                     print(f"[INFO] Unassigning user {user_id} from box {box_id_from_screen}")
                     box_service.unassign_user_from_box(user_id)
         
@@ -691,6 +694,8 @@ def unassign_box_from_screen():
             except Exception as e:
                 print(f"[ERROR] Error resetting screen port VLAN on switch: {e}")
         
+        if keep_user:
+            return jsonify({'message': 'Screen disconnected. User assignment kept.'}), 200
         user_msg = f" and user {user_id}" if user_id else ""
         return jsonify({'message': f'Screen unassigned{user_msg} successfully'}), 200
 
