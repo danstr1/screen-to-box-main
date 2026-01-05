@@ -217,7 +217,7 @@ class ScreenAssignmentUI(QMainWindow):
         self.input_locked = False  # Prevent input after Enter until timeout
         self.clear_timer = QTimer()
         self.clear_timer.timeout.connect(self.clear_display)
-        self.clear_seconds = 7
+        self.clear_seconds = 30
         
         # Status check timer
         self.status_timer = QTimer()
@@ -628,8 +628,9 @@ class ScreenAssignmentUI(QMainWindow):
     
     def add_digit(self, digit):
         """Add a digit to the user ID input"""
+        # If input was locked (after Enter), reset UI first then add the digit
         if self.input_locked:
-            return
+            self.reset_ui()
         if len(self.user_id) < 20:  # Limit input length
             self.user_id += digit
             self.display.setText(self.user_id)

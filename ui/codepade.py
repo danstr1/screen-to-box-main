@@ -191,8 +191,8 @@ class BoxUI(QMainWindow):
         self.input_locked = False  # Prevent input after Enter until timeout
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self.on_timeout)
-        self.timeout_seconds = 7
-        
+        self.timeout_seconds = 5
+
         # Clock timer
         self.clock_timer = QTimer()
         self.clock_timer.timeout.connect(self.update_clock)
@@ -593,8 +593,9 @@ class BoxUI(QMainWindow):
     
     def add_digit(self, digit):
         """Add a digit to the user ID input"""
+        # If input was locked (after Enter), reset UI first then add the digit
         if self.input_locked:
-            return
+            self.reset_to_keypad()
         if len(self.user_id) < 20:  # Limit input length
             self.user_id += digit
             self.display.setText(self.user_id)
@@ -661,7 +662,7 @@ class BoxUI(QMainWindow):
     def show_action_options(self, box_info):
         """Show action options when user has a box"""
         box_number = box_info.get('box_number', 'N/A')
-        self.display.setText(f"User ID: {self.user_id}\nCurrent Box: {box_number}")
+        self.display.setText(f"User ID: {self.user_id}<br>Current Box: <b style='color: green;'>{box_number}</b>")
         self.status_label.setText(f"You are assigned to Box {box_number}")
         self.status_label.setStyleSheet(COLOR_BLUE)
         self.action_container.show()
@@ -679,7 +680,7 @@ class BoxUI(QMainWindow):
         
         if result:
             box_number = result.get('box_number', 'N/A')
-            self.display.setText(f"User ID: {self.user_id}\nAssigned Box: {box_number}")
+            self.display.setText(f"User ID: {self.user_id}<br>Assigned Box: <b style='color: green;'>{box_number}</b>")
             self.status_label.setText(f"Box {box_number} assigned successfully!")
             self.status_label.setStyleSheet(COLOR_GREEN)
             self.current_box = result
@@ -721,7 +722,7 @@ class BoxUI(QMainWindow):
         """Handle do nothing button"""
         if self.current_box:
             box_number = self.current_box.get('box_number', 'N/A')
-            self.display.setText(f"User ID: {self.user_id}\nBox: {box_number}\nNo changes made")
+            self.display.setText(f"User ID: {self.user_id}<br>Box: <b style='color: green;'>{box_number}</b><br>No changes made")
             self.status_label.setText("No changes made")
             self.status_label.setStyleSheet(COLOR_GRAY)
             self.start_timeout()
@@ -736,7 +737,7 @@ class BoxUI(QMainWindow):
         self.timeout_timer.stop()
         if self.current_box:
             box_number = self.current_box.get('box_number', 'N/A')
-            self.display.setText(f"User ID: {self.user_id}\nBox: {box_number}\n(Timeout)")
+            self.display.setText(f"User ID: {self.user_id}<br>Box: <b style='color: green;'>{box_number}</b><br>(Timeout)")
             self.status_label.setText("Session timed out after 30 seconds")
             self.status_label.setStyleSheet(COLOR_ORANGE)
         
